@@ -1,3 +1,4 @@
+import asyncio
 import streamlit as st
 import pandas as pd
 import PyPDF2
@@ -176,7 +177,12 @@ def page_content():
 ############################################
 # Step 3: Analyze Content
 ############################################
-def page_analyze():
+async def process_paragraph(para, objective_emb, embedding_model):
+    para_emb = embedding_model.encode(para, convert_to_tensor=True)
+    sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
+    return {"Chunk ID": para, "Paragraph": para.strip(), "Alignment Score": round(sim_score, 3)}
+
+async def page_analyze():
     st.title("Step 3: Analyze Content")
 
     if "metadata" not in st.session_state or not st.session_state["metadata"].get("Lesson Objective", "").strip():
@@ -197,7 +203,7 @@ def page_analyze():
     paragraphs = combined_text.split("\n\n")
     data = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_to_para = {executor.submit(process_paragraph, para, objective_emb): para for para in paragraphs}
+        future_to_para = {executor.submit(asyncio.run, process_paragraph(para, objective_emb, embedding_model)): para for para in paragraphs}
         for future in concurrent.futures.as_completed(future_to_para):
             result = future.result()
             if result:
@@ -214,12 +220,6 @@ def page_analyze():
             st.success("Proceeding to Step 4: Storyboard.")
         else:
             st.error("Please make sure the analysis is complete before moving to the next step.")
-
-def process_paragraph(para, objective_emb):
-    embedding_model = load_embedding_model()
-    para_emb = embedding_model.encode(para, convert_to_tensor=True)
-    sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
-    return {"Chunk ID": para, "Paragraph": para.strip(), "Alignment Score": round(sim_score, 3)}
 
 ############################################
 # Step 4: Storyboard Creation
@@ -245,14 +245,12 @@ def page_storyboard():
         st.success("Storyboard with interactivities saved successfully!")
         st.write(st.session_state["screens_df"])
 
-# Continue with Steps 5 and 6...
 ############################################
 # Step 5: Refine Storyboard
 ############################################
 def page_refine():
     st.title("Step 5: Refine Storyboard")
 
-    # Check if storyboard data is available
     if "screens_df" not in st.session_state or st.session_state["screens_df"].empty:
         st.error("No storyboard available to refine. Please complete Step 4: Storyboard first.")
         return
@@ -264,7 +262,6 @@ def page_refine():
         key="refine_editor"
     )
 
-    # Allow for the modification of interactive elements in the refined storyboard
     st.write("### Add/Modify Interactive Elements:")
     for index, row in edited_df.iterrows():
         st.write(f"#### Screen {index + 1}: {row['Paragraph'][:50]}...")  # Show snippet of content
@@ -276,12 +273,10 @@ def page_refine():
         )
         edited_df.at[index, "Interactive Element"] = interactivity_type
 
-    # Save the refined storyboard back to session state
     if st.button("Save Refinements"):
         st.session_state["screens_df"] = edited_df
         st.success("Refinements saved successfully!")
 
-    # Display the refined storyboard preview
     st.subheader("Refined Storyboard Preview")
     st.dataframe(st.session_state["screens_df"])
 
@@ -298,9 +293,6 @@ def page_export():
     if st.button("Export to Word"):
         export_to_word(st.session_state["screens_df"], st.session_state["metadata"])
 
-############################################
-# Export Logic
-############################################
 def export_to_word(screens_df, metadata):
     doc = WordDocument()
     doc.add_heading(metadata["Lesson Title"], level=1)
@@ -311,7 +303,6 @@ def export_to_word(screens_df, metadata):
         doc.add_paragraph(f"Estimated Duration: {row.get('Estimated Duration', 'Not Provided')} minutes")
         doc.add_paragraph(f"Interactive Element: {row.get('Interactive Element', 'None')}")
     
-    # Save the file to memory and allow download
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
