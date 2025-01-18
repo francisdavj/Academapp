@@ -273,7 +273,6 @@ def page_storyboard():
         st.success("Storyboard with interactivities saved successfully!")
         st.write(st.session_state["screens_df"])
 
-# Continue with Steps 5 and 6...
 ############################################
 # Step 5: Refine Storyboard
 ############################################
@@ -317,13 +316,14 @@ def page_refine():
     # Debug: Display refined storyboard
     st.subheader("Refined Storyboard Preview")
     st.dataframe(st.session_state["screens_df"])
-
 ############################################
 # Step 6: Export
 ############################################
 def page_export():
     """Step 6: Export storyboard."""
     st.title("Step 6: Export")
+
+    # Ensure the storyboard is available
     if st.session_state["screens_df"].empty:
         st.error("No storyboard available to export.")
         return
@@ -338,18 +338,16 @@ def export_to_word(screens_df, metadata):
     """Export storyboard to Word."""
     doc = WordDocument()
     doc.add_heading(metadata["Lesson Title"], level=1)
+
+    # Iterate through the storyboard and add each screen's content
     for _, row in screens_df.iterrows():
         doc.add_heading(f"Screen {row['Chunk ID']}", level=2)
         doc.add_paragraph(row["Paragraph"])
         doc.add_paragraph(f"Estimated Duration: {row.get('Estimated Duration', 'Not Provided')} minutes")
         doc.add_paragraph(f"Interactive Element: {row.get('Interactive Element', 'None')}")
+
+    # Save the Word document in a buffer and offer it for download
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     st.download_button("Download Word Document", buffer, file_name="storyboard.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-
-############################################
-# Run the App
-############################################
-if __name__ == "__main__":
-    main()
