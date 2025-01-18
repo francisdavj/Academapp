@@ -7,6 +7,14 @@ from docx import Document
 from sentence_transformers import SentenceTransformer, util
 from PIL import Image
 import pytesseract
+import pytesseract
+from pytesseract import TesseractNotFoundError
+
+# Set Tesseract path if required
+try:
+    pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+except TesseractNotFoundError:
+    st.error("Tesseract-OCR is not installed or not found.")
 
 ############################################
 # 1) MySQL Config and Logging Functions
