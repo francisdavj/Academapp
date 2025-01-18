@@ -225,6 +225,14 @@ def page_analyze():
     st.write("Alignment Results:")
     st.dataframe(df_analysis)
 
+    # Add a Next button to proceed to the next phase (Storyboard)
+    if st.button("Next"):
+        if not df_analysis.empty:
+            st.session_state["page"] = 3  # Move to the Storyboard phase
+            st.success("Proceeding to Step 4: Storyboard.")
+        else:
+            st.error("Please make sure the analysis is complete before moving to the next step.")
+
 ############################################
 # Step 4: Storyboard Generation
 ############################################
@@ -254,6 +262,7 @@ def page_storyboard():
         st.success("Storyboard with interactivities saved successfully!")
         st.write(st.session_state["screens_df"])
 
+# Continue with Steps 5 and 6...
 ############################################
 # Step 5: Refine Storyboard
 ############################################
@@ -280,7 +289,7 @@ def page_refine():
     # Interactive Element Suggestions
     st.write("### Add/Modify Interactive Elements:")
     for index, row in edited_df.iterrows():
-        st.write(f"#### Screen {index + 1}: {row['Screen Title']}")
+        st.write(f"#### Screen {index + 1}: {row['Paragraph'][:50]}...")  # Show snippet of content
         interactivity_type = st.selectbox(
             f"Choose an interactive element for Screen {index + 1}:",
             ["None", "Quiz", "Reflection Question", "Accordion", "Tab"],
@@ -321,8 +330,8 @@ def export_to_word(screens_df, metadata):
     for _, row in screens_df.iterrows():
         doc.add_heading(f"Screen {row['Chunk ID']}", level=2)
         doc.add_paragraph(row["Paragraph"])
-        doc.add_paragraph(f"Estimated Duration: {row['Estimated Duration']} minutes")
-        doc.add_paragraph(f"Interactive Element: {row['Interactive Element']}")
+        doc.add_paragraph(f"Estimated Duration: {row.get('Estimated Duration', 'Not Provided')} minutes")
+        doc.add_paragraph(f"Interactive Element: {row.get('Interactive Element', 'None')}")
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
