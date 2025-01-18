@@ -1,3 +1,8 @@
+def page_content():
+    st.write("DEBUG: Entered page_content() function!")
+    ...
+
+
 import streamlit as st
 import mysql.connector
 import datetime
