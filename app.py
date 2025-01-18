@@ -1,3 +1,4 @@
+import asyncio
 import streamlit as st
 import pandas as pd
 import PyPDF2
@@ -8,12 +9,12 @@ from PIL import Image
 from docx import Document as WordDocument
 import io
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+import concurrent.futures
 
 ############################################
 # Helper Functions for File Parsing
 ############################################
 def parse_pdf(uploaded_pdf):
-    """Extract text from PDF."""
     text = ""
     try:
         reader = PyPDF2.PdfReader(uploaded_pdf)
@@ -25,7 +26,6 @@ def parse_pdf(uploaded_pdf):
     return text
 
 def parse_docx(uploaded_docx):
-    """Extract text from DOCX files."""
     text = ""
     try:
         doc = Document(uploaded_docx)
@@ -36,7 +36,6 @@ def parse_docx(uploaded_docx):
     return text
 
 def parse_image(uploaded_image):
-    """Extract text from images using OCR."""
     text = ""
     try:
         image = Image.open(uploaded_image)
@@ -46,7 +45,6 @@ def parse_image(uploaded_image):
     return text
 
 def parse_multiple_files(uploaded_files):
-    """Parse multiple uploaded files and combine their content."""
     combined_text = ""
     for file in uploaded_files:
         if file.name.endswith(".pdf"):
@@ -112,7 +110,7 @@ def main():
     elif page == 1:
         page_content()
     elif page == 2:
-        page_analyze()  # Sync processing of analysis
+        page_analyze()
     elif page == 3:
         page_storyboard()
     elif page == 4:
@@ -177,9 +175,14 @@ def page_content():
             st.error("Please upload or enter content.")
 
 ############################################
-# Step 3: Analyze Content (Sync)
+# Step 3: Analyze Content
 ############################################
-def page_analyze():
+async def process_paragraph(para, objective_emb, embedding_model):
+    para_emb = embedding_model.encode(para, convert_to_tensor=True)
+    sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
+    return {"Chunk ID": para, "Paragraph": para.strip(), "Alignment Score": round(sim_score, 3)}
+
+async def page_analyze():
     st.title("Step 3: Analyze Content")
 
     if "metadata" not in st.session_state or not st.session_state["metadata"].get("Lesson Objective", "").strip():
@@ -199,15 +202,12 @@ def page_analyze():
 
     paragraphs = combined_text.split("\n\n")
     data = []
-    for para in paragraphs:
-        if para.strip():
-            para_emb = embedding_model.encode(para, convert_to_tensor=True)
-            sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
-            data.append({
-                "Chunk ID": para,
-                "Paragraph": para.strip(),
-                "Alignment Score": round(sim_score, 3)
-            })
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_para = {executor.submit(asyncio.run, process_paragraph(para, objective_emb, embedding_model)): para for para in paragraphs}
+        for future in concurrent.futures.as_completed(future_to_para):
+            result = future.result()
+            if result:
+                data.append(result)
 
     df_analysis = pd.DataFrame(data)
     st.session_state["analysis_df"] = df_analysis
@@ -233,18 +233,14 @@ def page_storyboard():
 
     st.session_state["screens_df"] = st.session_state["analysis_df"]
 
-    # Iterate through each screen and suggest interactive element
     for index, row in st.session_state["screens_df"].iterrows():
         st.write(f"### Screen {index + 1}: {row['Paragraph'][:50]}...")  # Display snippet of the content
 
-        # **AI decides interactivity based on content**
         interactivity_suggestion = generate_interactivity(row['Paragraph'])
         st.write(f"AI Suggested Interactivity: {interactivity_suggestion}")
 
-        # Optionally allow IDs to customize the generated interactivity
         st.session_state["screens_df"].at[index, "Interactive Element"] = interactivity_suggestion
 
-    # Save the refined storyboard with interactivities
     if st.button("Save Storyboard"):
         st.success("Storyboard with interactivities saved successfully!")
         st.write(st.session_state["screens_df"])
