@@ -1,275 +1,120 @@
 import streamlit as st
+import mysql.connector
+import datetime
 import pandas as pd
 
-def main():
-    # Basic Streamlit page config
-    st.set_page_config(page_title="Lesson Builder", layout="wide")
-
-    # Initialize page index and DataFrame if not in session_state
-    if "page" not in st.session_state:
-        st.session_state["page"] = 0
-
-    if "screens_df" not in st.session_state:
-        st.session_state["screens_df"] = pd.DataFrame()
-
-    # Render sidebar progress menu
-    show_progress_in_sidebar()
-
-    # Display current page
-    if st.session_state["page"] == 0:
-        page_metadata()
-    elif st.session_state["page"] == 1:
-        page_content()
-    elif st.session_state["page"] == 2:
-        page_generate()
-    elif st.session_state["page"] == 3:
-        page_refine()
-    else:
-        st.write("Invalid page index!")  
-
-def show_progress_in_sidebar():
+############################
+# MySQL Configuration
+############################
+def get_db_connection():
     """
-    Renders a sidebar section with the steps of the workflow.
-    Indicates completion status based on st.session_state["page"].
+    Connect to your Hostinger MySQL database using the credentials you've provided.
     """
-    st.sidebar.title("Lesson Steps Progress")
+    # Directly using your credentials here.
+    # If you're making the repo private, that’s acceptable short-term.
+    # Long-term, consider using Streamlit secrets to avoid exposing the password.
+    host = "127.0.0.1"           # or "localhost" as displayed in phpMyAdmin
+    port = 3306                  # MySQL default port
+    user = "u628260032_francisdavid"
+    password = "Chennai@202475"  # Provided password
+    database = "u628260032_academapp"
 
-    steps = ["Metadata", "Content", "Generate", "Refine"]
-    current_page = st.session_state["page"]
+    try:
+        conn = mysql.connector.connect(
+            host=host,
+            user=user,
+            password=password,
+            database=database,
+            port=port
+        )
+        return conn
+    except Exception as e:
+        st.error(f"Could not connect to MySQL: {e}")
+        return None
 
-    for i, step_name in enumerate(steps):
-        if i < current_page:
-            # Step is completed
-            st.sidebar.write(f"✅ {step_name} - Done")
-        elif i == current_page:
-            # Step is in progress
-            st.sidebar.write(f"▶️ {step_name} - In Progress")
-        else:
-            # Future steps
-            st.sidebar.write(f"⬜ {step_name} - Pending")
-
-def page_metadata():
-    st.title("Lesson Builder: Step 1 - Metadata")
-    st.write("Enter your high-level metadata for the lesson.")
-
-    # Create text inputs for metadata
-    course_title = st.text_input("Course # and Title", "")
-    module_title = st.text_input("Module # and Title", "")
-    unit_title = st.text_input("Unit # and Title", "")
-    lesson_title = st.text_input("Lesson # and Title", "")
-    lesson_objective = st.text_input("Lesson Objective", "")
-    lesson_type = st.selectbox("Lesson Type", ["Core Learning Lesson", "Practice Lesson", "Other"])
-
-    if st.button("Next"):
-        # Store metadata in session_state
-        st.session_state["metadata"] = {
-            "Course and Title": course_title,
-            "Module and Title": module_title,
-            "Unit and Title": unit_title,
-            "Lesson and Title": lesson_title,
-            "Lesson Objective": lesson_objective,
-            "Lesson Type": lesson_type
-        }
-        # Move to next page
-        st.session_state["page"] = 1
-
-def page_content():
-    st.title("Lesson Builder: Step 2 - Content Collection")
-    st.write("Paste or type your textbook and SME content below. No new content will be invented, only refined if needed.")
-
-    # Collect text from user
-    textbook_text = st.text_area("Textbook Content", height=200)
-    sme_text = st.text_area("SME Content", height=200)
-
-    # Toggle for concept teaching video
-    include_video = st.checkbox("Include Concept Teaching Video?")
-
-    if st.button("Next"):
-        # Store content in session_state
-        st.session_state["textbook_text"] = textbook_text
-        st.session_state["sme_text"] = sme_text
-        st.session_state["include_video"] = include_video
-
-        st.session_state["page"] = 2
-
-def page_generate():
-    st.title("Lesson Builder: Step 3 - Generate Lesson Screens")
-    st.write("When you click 'Generate Screens,' we'll build ~8-10 placeholders for a 15-minute lesson. Then you can refine them.")
-
-    # Get data from session_state
-    metadata = st.session_state.get("metadata", {})
-    textbook_text = st.session_state.get("textbook_text", "")
-    sme_text = st.session_state.get("sme_text", "")
-    include_video = st.session_state.get("include_video", False)
-
-    if st.button("Generate Screens"):
-        # Create or call your AI logic to generate the screens
-        df = generate_screens(metadata, textbook_text, sme_text, include_video)
-        st.session_state["screens_df"] = df
-        st.success("Lesson screens generated! Scroll down to preview.")
-
-    if "screens_df" in st.session_state and not st.session_state["screens_df"].empty:
-        st.write("Preview of generated lesson screens:")
-        st.dataframe(st.session_state["screens_df"])
-
-        if st.button("Next: Refine Screens"):
-            st.session_state["page"] = 3
-
-def page_refine():
-    st.title("Lesson Builder: Step 4 - Refine Screens")
-    st.write("Review and edit each screen. Make sure to only use the content you provided (no new info).")
-
-    df = st.session_state.get("screens_df", pd.DataFrame())
-    if df.empty:
-        st.write("No screens to refine. Please go back and generate first.")
+def log_usage_to_db(log_entry):
+    """
+    Insert a log entry into usage_logs table.
+    log_entry might look like:
+    {
+      "screen_index": 3,
+      "changes": {
+         "Screen Title": {"old":"Old Title","new":"New Title"},
+         "Text": {"old":"...","new":"..."}
+      }
+    }
+    """
+    conn = get_db_connection()
+    if not conn:
         return
 
-    updated_rows = []
-    for i, row in df.iterrows():
-        with st.expander(f"Screen {row['Screen Number']}: {row['Screen Title']}"):
-            # Provide text fields for editable columns
-            new_title = st.text_input("Screen Title", row["Screen Title"], key=f"title_{i}")
-            new_text = st.text_area("Text", row["Text"], key=f"text_{i}")
-            new_duration = st.text_input("Estimated Duration", row["Estimated Duration"], key=f"duration_{i}")
+    try:
+        cursor = conn.cursor()
+        # Convert the changes dict to string (could also use json.dumps)
+        changes_str = str(log_entry.get("changes", {}))
+        log_time = datetime.datetime.now()
 
-            updated_rows.append((i, new_title, new_text, new_duration))
+        sql = """
+        INSERT INTO usage_logs (log_time, screen_index, changes)
+        VALUES (%s, %s, %s)
+        """
+        cursor.execute(sql, (log_time, log_entry.get("screen_index"), changes_str))
+        conn.commit()
 
-    if st.button("Apply Refinements"):
-        for (i, t, x, d) in updated_rows:
-            df.at[i, "Screen Title"] = t
-            df.at[i, "Text"] = x
-            df.at[i, "Estimated Duration"] = d
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        st.error(f"Error inserting usage log: {e}")
 
-        st.session_state["screens_df"] = df
-        st.success("Refinements applied! Check updated screens below.")
+############################
+# Example Lesson Builder Code
+############################
+
+def main():
+    st.set_page_config(page_title="Lesson Builder Demo", layout="wide")
+
+    if "screens_df" not in st.session_state:
+        # A simple DataFrame representing auto-generated screens
+        st.session_state["screens_df"] = pd.DataFrame(
+            [
+                {"Screen Number":1, "Screen Title":"Intro", "Text":"Welcome text", "Estimated Duration":"2 minutes"},
+                {"Screen Number":2, "Screen Title":"Key Concept", "Text":"Concept text", "Estimated Duration":"2 minutes"}
+            ]
+        )
+
+    st.title("Demo: MySQL Logging on Hostinger")
+
+    df = st.session_state["screens_df"]
+    st.write("Current screens:")
+    st.dataframe(df)
+
+    if st.button("Refine & Log Changes"):
+        # For demonstration, let's pretend we changed the second screen's text
+        old_row = df.loc[1].copy()
+        df.at[1, "Text"] = "Updated Concept text"
+        # Now log the difference
+        log_user_change_db(1, old_row, df.loc[1])
+
+        st.success("Changes applied & usage logged to DB!")
         st.dataframe(df)
 
-    if st.button("Finish"):
-        st.write("Lesson creation workflow complete!")
-        st.balloons()
-
-def generate_screens(metadata, textbook_text, sme_text, include_video):
+def log_user_change_db(screen_index, old_row, new_row):
     """
-    Basic function that simulates the AI building out ~8-10 screens for a 15-minute lesson,
-    referencing user-provided content. No new content is introduced.
+    Compare old vs. new row, log only if there's a difference.
     """
-    screens = []
-    total_duration = 0
+    changes = {}
+    for col in ["Screen Title", "Text", "Estimated Duration"]:
+        old_val = old_row[col]
+        new_val = new_row[col]
+        if old_val != new_val:
+            changes[col] = {"old": old_val, "new": new_val}
 
-    # 1. Introduction
-    screens.append({
-        "Screen Number": 1,
-        "Screen Title": "Introduction / Hook",
-        "Screen Type": "Text and Graphic",
-        "Template": "Canvas",
-        "Estimated Duration": "2 minutes",
-        "Text": (f"Welcome to {metadata.get('Lesson Type','')}! "
-                 f"This lesson covers: {metadata.get('Lesson Objective','')}\n\n"
-                 "Hook or scenario from your content might go here."),
-        "Content Source": "AI Placeholder"
-    })
-    total_duration += 2
-
-    # 2. Key Concept 1 (using textbook text)
-    screens.append({
-        "Screen Number": 2,
-        "Screen Title": "Key Concept 1",
-        "Screen Type": "Text and Graphic",
-        "Template": "Accordion",
-        "Estimated Duration": "2 minutes",
-        "Text": textbook_text or "No textbook content was provided.",
-        "Content Source": "Textbook"
-    })
-    total_duration += 2
-
-    # 3. Key Concept 2 (using sme_text)
-    screens.append({
-        "Screen Number": 3,
-        "Screen Title": "Key Concept 2",
-        "Screen Type": "Text and Graphic",
-        "Template": "Canvas",
-        "Estimated Duration": "2 minutes",
-        "Text": sme_text or "No SME content was provided.",
-        "Content Source": "SME"
-    })
-    total_duration += 2
-
-    # 4. Practice Interactive #1
-    screens.append({
-        "Screen Number": 4,
-        "Screen Title": "Check Your Understanding #1",
-        "Screen Type": "Practice Interactive",
-        "Template": "Quiz",
-        "Estimated Duration": "1 minute",
-        "Text": "Short scenario or question derived from your content. (No new info)",
-        "Content Source": "AI Placeholder"
-    })
-    total_duration += 1
-
-    # 5. Concept Animation
-    screens.append({
-        "Screen Number": 5,
-        "Screen Title": "Concept Animation",
-        "Screen Type": "Animation Placeholder",
-        "Template": "Animation",
-        "Estimated Duration": "2 minutes",
-        "Text": "You can link a short animation here if available. No new content introduced.",
-        "Content Source": "Placeholder"
-    })
-    total_duration += 2
-
-    # Optional concept video
-    if include_video:
-        screens.append({
-            "Screen Number": 6,
-            "Screen Title": "Concept Teaching Video",
-            "Screen Type": "Video Placeholder",
-            "Template": "Video",
-            "Estimated Duration": "2 minutes",
-            "Text": "If the ID decided to have a video, place it here. No new content from AI.",
-            "Content Source": "Placeholder"
-        })
-        total_duration += 2
-
-    # Next placeholders (advanced organizers, second quiz, reflection)
-    next_screen = 6 if not include_video else 7
-    screens.append({
-        "Screen Number": next_screen,
-        "Screen Title": "Advanced Organizer #1",
-        "Screen Type": "Text and Graphic",
-        "Template": "Complex Illustration",
-        "Estimated Duration": "1 minute",
-        "Text": "A complex infographic or chart summarizing the lesson so far.",
-        "Content Source": "Placeholder"
-    })
-    total_duration += 1
-
-    next_screen += 1
-    screens.append({
-        "Screen Number": next_screen,
-        "Screen Title": "Check Your Understanding #2",
-        "Screen Type": "Practice Interactive",
-        "Template": "Quiz",
-        "Estimated Duration": "1 minute",
-        "Text": "A second short practice or scenario-based question.",
-        "Content Source": "AI Placeholder"
-    })
-    total_duration += 1
-
-    next_screen += 1
-    screens.append({
-        "Screen Number": next_screen,
-        "Screen Title": "Reflection / Think About This",
-        "Screen Type": "Text and Graphic",
-        "Template": "Reflection",
-        "Estimated Duration": "1 minute",
-        "Text": "End with a reflection screen to help learners apply these concepts to real-world scenarios.",
-        "Content Source": "Placeholder"
-    })
-    total_duration += 1
-
-    st.write(f"Approximate total lesson duration: ~{total_duration} minutes")
-    return pd.DataFrame(screens)
+    if changes:
+        log_entry = {
+            "screen_index": screen_index,
+            "changes": changes
+        }
+        log_usage_to_db(log_entry)
 
 if __name__ == "__main__":
     main()
