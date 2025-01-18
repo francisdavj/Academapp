@@ -1,56 +1,77 @@
 import streamlit as st
-import os
+import pandas as pd
 import pytesseract
+from pytesseract import Output
 from PIL import Image
+import os
+import fitz  # PyMuPDF for PDF processing
 
-# Set page configuration at the very top
+# Set Streamlit page configuration
 st.set_page_config(page_title="Advanced Lesson Builder", layout="wide")
 
-# Main function
-def main():
-    st.title("Welcome to the Advanced Lesson Builder!")
-    st.write("Upload your files and build interactive lessons easily.")
+# Sidebar: File Upload
+st.sidebar.header("Upload File")
+uploaded_file = st.sidebar.file_uploader("Choose a file", type=["png", "jpg", "jpeg", "pdf"], help="Upload an image or PDF file.")
 
-    # Sidebar for file upload
-    st.sidebar.header("Upload File")
-    uploaded_file = st.sidebar.file_uploader("Choose a file", type=["png", "jpg", "jpeg", "pdf"])
+# Title and Description
+st.title("Welcome to the Advanced Lesson Builder!")
+st.write("Upload your files and build interactive lessons easily.")
 
-    if uploaded_file:
-        # Display uploaded file
-        st.image(uploaded_file, caption="Uploaded File", use_column_width=True)
+def extract_metadata(file_path):
+    """Extract metadata from PDF using PyMuPDF."""
+    doc = fitz.open(file_path)
+    metadata = doc.metadata
+    doc.close()
+    return metadata
 
-        # Save file temporarily for OCR processing
-        with open(os.path.join("temp", uploaded_file.name), "wb") as f:
-            f.write(uploaded_file.getbuffer())
+def extract_text_from_image(image):
+    """Extract text from an image using Tesseract OCR."""
+    return pytesseract.image_to_string(image, lang="eng")
 
-        # Process the uploaded file
-        process_file(os.path.join("temp", uploaded_file.name))
+def display_pdf(file_path):
+    """Display PDF in Streamlit."""
+    with fitz.open(file_path) as doc:
+        for page_num, page in enumerate(doc, start=1):
+            pix = page.get_pixmap()
+            st.image(pix.tobytes(), caption=f"Page {page_num}", use_column_width=True)
 
-# Function to process uploaded file
-def process_file(file_path):
-    st.subheader("Extracted Text")
-    try:
-        # Perform OCR using pytesseract
-        text = pytesseract.image_to_string(Image.open(file_path))
-        st.text_area("Extracted Text", text, height=300)
+if uploaded_file:
+    file_extension = uploaded_file.name.split(".")[-1].lower()
+    save_path = os.path.join("temp", uploaded_file.name)
+    
+    # Save the uploaded file
+    with open(save_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    
+    st.write(f"File '{uploaded_file.name}' uploaded successfully!")
+    
+    if file_extension in ["png", "jpg", "jpeg"]:
+        # Process images
+        image = Image.open(save_path)
+        st.image(image, caption="Uploaded Image", use_column_width=True)
+        
+        # Extract text
+        with st.spinner("Extracting text..."):
+            text = extract_text_from_image(image)
+        st.text_area("Extracted Text", text, height=200)
+    
+    elif file_extension == "pdf":
+        # Process PDFs
+        st.write("Processing PDF...")
+        metadata = extract_metadata(save_path)
+        st.subheader("Metadata:")
+        st.json(metadata)
+        
+        # Display PDF
+        st.subheader("PDF Preview:")
+        display_pdf(save_path)
+    
+    else:
+        st.error("Unsupported file type!")
+else:
+    st.info("Upload a file to begin.")
 
-        # Optional: Add functionality to save the extracted text
-        if st.button("Save Text"):
-            save_text(file_path, text)
-            st.success("Text saved successfully!")
-    except Exception as e:
-        st.error(f"Error processing file: {e}")
-
-# Function to save extracted text
-def save_text(file_path, text):
-    base_name = os.path.basename(file_path)
-    output_file = os.path.splitext(base_name)[0] + "_extracted.txt"
-    with open(output_file, "w") as f:
-        f.write(text)
-
-# Run the app
-if __name__ == "__main__":
-    # Create temp directory if it doesn't exist
-    if not os.path.exists("temp"):
-        os.makedirs("temp")
-    main()
+# Clean up temporary files (Optional, for long-term stability)
+if os.path.exists("temp"):
+    for f in os.listdir("temp"):
+        os.remove(os.path.join("temp", f))
