@@ -91,7 +91,6 @@ def generate_interactivity(content_chunk):
     except Exception as e:
         return f"Error generating interactivity: {e}"
 
-
 ############################################
 # Multi-Step Workflow
 ############################################
@@ -316,6 +315,7 @@ def page_refine():
     # Debug: Display refined storyboard
     st.subheader("Refined Storyboard Preview")
     st.dataframe(st.session_state["screens_df"])
+
 ############################################
 # Step 6: Export
 ############################################
@@ -351,3 +351,9 @@ def export_to_word(screens_df, metadata):
     doc.save(buffer)
     buffer.seek(0)
     st.download_button("Download Word Document", buffer, file_name="storyboard.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+############################################
+# Run the App
+############################################
+if __name__ == "__main__":
+    main()
