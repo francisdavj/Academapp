@@ -7,6 +7,7 @@ import pytesseract
 from PIL import Image
 from docx import Document as WordDocument
 import io
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
 
 ############################################
 # Helper Functions for File Parsing
@@ -63,6 +64,22 @@ def parse_multiple_files(uploaded_files):
 def load_embedding_model():
     """Load the SentenceTransformer model."""
     return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+# Define a pipeline for GPT-based interaction generation
+def load_gpt_model():
+    """Load a GPT-based model for content generation"""
+    model_name = "EleutherAI/gpt-neo-2.7B"  # Using GPT-Neo for interactivity suggestions
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
+    return generator
+
+def generate_interactivity(content_chunk):
+    """Generate interactivity suggestion using GPT model"""
+    generator = load_gpt_model()
+    prompt = f"Given this content: {content_chunk}, suggest an appropriate interactive element such as a quiz, mind map, or timeline, and provide a short description of how it should work."
+    response = generator(prompt, max_length=100, num_return_sequences=1)
+    return response[0]['generated_text']
 
 ############################################
 # Multi-Step Workflow
@@ -212,15 +229,30 @@ def page_analyze():
 # Step 4: Storyboard Generation
 ############################################
 def page_storyboard():
-    """Step 4: Create storyboard."""
-    st.title("Step 4: Storyboard")
+    """Step 4: Create storyboard with AI-driven interactivity."""
+    st.title("Step 4: Storyboard Creation with AI-Driven Interactivity")
+
     if "analysis_df" not in st.session_state or st.session_state["analysis_df"].empty:
-        st.error("No analysis results available. Please complete Step 3: Analyze Content first.")
+        st.error("No analysis results available. Please complete the content analysis first.")
         return
 
-    # Create storyboard
     st.session_state["screens_df"] = st.session_state["analysis_df"]
-    st.dataframe(st.session_state["screens_df"])
+
+    # Iterate through each screen and suggest interactive element
+    for index, row in st.session_state["screens_df"].iterrows():
+        st.write(f"### Screen {index + 1}: {row['Paragraph'][:50]}...")  # Display snippet of the content
+
+        # **AI decides interactivity based on content**
+        interactivity_suggestion = generate_interactivity(row['Paragraph'])
+        st.write(f"AI Suggested Interactivity: {interactivity_suggestion}")
+
+        # Optionally allow IDs to customize the generated interactivity
+        st.session_state["screens_df"].at[index, "Interactive Element"] = interactivity_suggestion
+
+    # Save the refined storyboard with interactivities
+    if st.button("Save Storyboard"):
+        st.success("Storyboard with interactivities saved successfully!")
+        st.write(st.session_state["screens_df"])
 
 ############################################
 # Step 5: Refine Storyboard
