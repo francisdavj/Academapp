@@ -1,4 +1,3 @@
-import asyncio
 import streamlit as st
 import pandas as pd
 import PyPDF2
@@ -9,12 +8,12 @@ from PIL import Image
 from docx import Document as WordDocument
 import io
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
-import concurrent.futures
 
 ############################################
 # Helper Functions for File Parsing
 ############################################
 def parse_pdf(uploaded_pdf):
+    """Extract text from PDF."""
     text = ""
     try:
         reader = PyPDF2.PdfReader(uploaded_pdf)
@@ -26,6 +25,7 @@ def parse_pdf(uploaded_pdf):
     return text
 
 def parse_docx(uploaded_docx):
+    """Extract text from DOCX files."""
     text = ""
     try:
         doc = Document(uploaded_docx)
@@ -36,6 +36,7 @@ def parse_docx(uploaded_docx):
     return text
 
 def parse_image(uploaded_image):
+    """Extract text from images using OCR."""
     text = ""
     try:
         image = Image.open(uploaded_image)
@@ -45,6 +46,7 @@ def parse_image(uploaded_image):
     return text
 
 def parse_multiple_files(uploaded_files):
+    """Parse multiple uploaded files and combine their content."""
     combined_text = ""
     for file in uploaded_files:
         if file.name.endswith(".pdf"):
@@ -110,7 +112,7 @@ def main():
     elif page == 1:
         page_content()
     elif page == 2:
-        asyncio.run(page_analyze())  # Async call for analyzing content
+        page_analyze()  # Sync processing of analysis
     elif page == 3:
         page_storyboard()
     elif page == 4:
@@ -175,14 +177,9 @@ def page_content():
             st.error("Please upload or enter content.")
 
 ############################################
-# Step 3: Analyze Content (Async)
+# Step 3: Analyze Content (Sync)
 ############################################
-async def process_paragraph(para, objective_emb, embedding_model):
-    para_emb = embedding_model.encode(para, convert_to_tensor=True)
-    sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
-    return {"Chunk ID": para, "Paragraph": para.strip(), "Alignment Score": round(sim_score, 3)}
-
-async def page_analyze():
+def page_analyze():
     st.title("Step 3: Analyze Content")
 
     if "metadata" not in st.session_state or not st.session_state["metadata"].get("Lesson Objective", "").strip():
@@ -202,12 +199,15 @@ async def page_analyze():
 
     paragraphs = combined_text.split("\n\n")
     data = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_to_para = {executor.submit(asyncio.run, process_paragraph(para, objective_emb, embedding_model)): para for para in paragraphs}
-        for future in concurrent.futures.as_completed(future_to_para):
-            result = future.result()
-            if result:
-                data.append(result)
+    for para in paragraphs:
+        if para.strip():
+            para_emb = embedding_model.encode(para, convert_to_tensor=True)
+            sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
+            data.append({
+                "Chunk ID": para,
+                "Paragraph": para.strip(),
+                "Alignment Score": round(sim_score, 3)
+            })
 
     df_analysis = pd.DataFrame(data)
     st.session_state["analysis_df"] = df_analysis
@@ -221,7 +221,6 @@ async def page_analyze():
         else:
             st.error("Please make sure the analysis is complete before moving to the next step.")
 
-# Continue with Steps 4, 5, and 6...
 ############################################
 # Step 4: Storyboard Creation
 ############################################
@@ -256,7 +255,6 @@ def page_storyboard():
 def page_refine():
     st.title("Step 5: Refine Storyboard")
 
-    # Check if storyboard data is available
     if "screens_df" not in st.session_state or st.session_state["screens_df"].empty:
         st.error("No storyboard available to refine. Please complete Step 4: Storyboard first.")
         return
@@ -309,7 +307,6 @@ def export_to_word(screens_df, metadata):
         doc.add_paragraph(f"Estimated Duration: {row.get('Estimated Duration', 'Not Provided')} minutes")
         doc.add_paragraph(f"Interactive Element: {row.get('Interactive Element', 'None')}")
     
-    # Save the file to memory and allow download
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
