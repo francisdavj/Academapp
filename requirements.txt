@@ -5,3 +5,6 @@ sentence-transformers
 torch
 python-docx
 PyPDF2
+tesseract-ocr
+pytesseract
+pillow
