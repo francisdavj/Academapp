@@ -5,8 +5,8 @@ from docx import Document
 from sentence_transformers import SentenceTransformer, util
 import pytesseract
 from PIL import Image
+from docx import Document as WordDocument
 import io
-import openpyxl  # For exporting to Excel
 
 ############################################
 # Helper Functions for File Parsing
@@ -209,60 +209,18 @@ def page_analyze():
     st.dataframe(df_analysis)
 
 ############################################
-# Step 4: Storyboard Creation with AI-Generated Interactive Elements
+# Step 4: Storyboard Generation
 ############################################
 def page_storyboard():
-    """Step 4: Create structured storyboard with AI-driven interactive elements."""
+    """Step 4: Create storyboard."""
     st.title("Step 4: Storyboard")
-    
-    # Check if analysis results are available
     if "analysis_df" not in st.session_state or st.session_state["analysis_df"].empty:
         st.error("No analysis results available. Please complete Step 3: Analyze Content first.")
         return
 
-    # Extract the analysis data into a structured format
-    analysis_df = st.session_state["analysis_df"]
-
-    # AI Logic for Content Structuring and Interactive Elements
-    screens = []
-    for i, row in analysis_df.iterrows():
-        screen_title = f"Screen {i + 1}"  # Automatically generated screen titles
-        paragraph = row["Paragraph"]
-        alignment_score = row["Alignment Score"]
-        estimated_duration = round(len(paragraph.split()) / 140, 2)  # Assuming 140 words = 1 minute
-        
-        # AI-based decision for adding interactive elements based on content
-        interactive_element = ""
-        
-        # Example: Advanced logic for inserting elements based on content (simulate AI behavior)
-        if alignment_score > 0.85:
-            interactive_element = "Quiz"  # High alignment suggests a quiz
-        elif alignment_score > 0.6:
-            interactive_element = "Reflection Question"  # Medium alignment suggests reflection
-        else:
-            interactive_element = "Activity"  # Low alignment suggests an activity to reinforce learning
-
-        # Add each screen's data to the storyboard
-        screens.append({
-            "Screen Title": screen_title,
-            "Text": paragraph,
-            "Estimated Duration": estimated_duration,
-            "Interactive Element": interactive_element
-        })
-
-    # Convert list of screens to DataFrame
-    storyboard_df = pd.DataFrame(screens)
-
-    # Store the storyboard in session state
-    st.session_state["screens_df"] = storyboard_df
-    
-    # Display the structured storyboard with AI-generated interactive elements
-    st.subheader("Generated Storyboard with Interactive Elements")
+    # Create storyboard
+    st.session_state["screens_df"] = st.session_state["analysis_df"]
     st.dataframe(st.session_state["screens_df"])
-
-    # Add a button to proceed to the refinement phase
-    if st.button("Proceed to Refine"):
-        st.session_state["page"] = 4
 
 ############################################
 # Step 5: Refine Storyboard
@@ -287,6 +245,18 @@ def page_refine():
         key="refine_editor"
     )
 
+    # Interactive Element Suggestions
+    st.write("### Add/Modify Interactive Elements:")
+    for index, row in edited_df.iterrows():
+        st.write(f"#### Screen {index + 1}: {row['Screen Title']}")
+        interactivity_type = st.selectbox(
+            f"Choose an interactive element for Screen {index + 1}:",
+            ["None", "Quiz", "Reflection Question", "Accordion", "Tab"],
+            index=["None", "Quiz", "Reflection Question", "Accordion", "Tab"].index(row.get("Interactive Element", "None")),
+            key=f"interactive_{index}"
+        )
+        edited_df.at[index, "Interactive Element"] = interactivity_type
+
     # Save refined storyboard back to session state
     if st.button("Save Refinements"):
         st.session_state["screens_df"] = edited_df
@@ -297,7 +267,7 @@ def page_refine():
     st.dataframe(st.session_state["screens_df"])
 
 ############################################
-# Step 6: Export to Word and Excel
+# Step 6: Export
 ############################################
 def page_export():
     """Step 6: Export storyboard."""
@@ -308,12 +278,9 @@ def page_export():
 
     if st.button("Export to Word"):
         export_to_word(st.session_state["screens_df"], st.session_state["metadata"])
-        
-    if st.button("Export to Excel"):
-        export_to_excel(st.session_state["screens_df"], st.session_state["metadata"])
 
 ############################################
-# Export to Word
+# Export Logic
 ############################################
 def export_to_word(screens_df, metadata):
     """Export storyboard to Word."""
@@ -330,21 +297,7 @@ def export_to_word(screens_df, metadata):
     st.download_button("Download Word Document", buffer, file_name="storyboard.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 ############################################
-# Export to Excel
+# Run the App
 ############################################
-def export_to_excel(screens_df, metadata):
-    """Export storyboard and metadata to Excel."""
-    excel_writer = pd.ExcelWriter(io.BytesIO(), engine='openpyxl')
-    
-    # Metadata sheet
-    metadata_df = pd.DataFrame([metadata])
-    metadata_df.to_excel(excel_writer, sheet_name='Metadata', index=False)
-    
-    # Storyboard sheet
-    screens_df.to_excel(excel_writer, sheet_name='Storyboard', index=False)
-    
-    excel_writer.save()
-    buffer = excel_writer.book
-    buffer.seek(0)
-    
-    st.download_button("Download Excel", buffer, file_name="storyboard.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+if __name__ == "__main__":
+    main()
