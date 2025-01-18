@@ -8,8 +8,11 @@ from PIL import Image
 from docx import Document as WordDocument
 import io
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+import concurrent.futures
 
-# Helper functions for file parsing
+############################################
+# Helper Functions for File Parsing
+############################################
 def parse_pdf(uploaded_pdf):
     text = ""
     try:
@@ -51,19 +54,24 @@ def parse_multiple_files(uploaded_files):
             combined_text += parse_image(file) + "\n"
     return combined_text
 
-# AI Model Setup (Sentence Transformers for alignment, GPT for interactivity)
+############################################
+# AI Model Setup
+############################################
 @st.cache_resource
 def load_embedding_model():
+    """Load the SentenceTransformer model once and cache it for faster reuse."""
     return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 def load_gpt_model():
-    model_name = "EleutherAI/gpt-neo-2.7B"
+    """Load a GPT-based model for content generation"""
+    model_name = "EleutherAI/gpt-neo-2.7B"  # Using GPT-Neo for interactivity suggestions
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
     generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
     return generator
 
 def generate_interactivity(content_chunk):
+    """Generate interactivity suggestion using GPT model"""
     generator = load_gpt_model()
     prompt = f"Given this content: {content_chunk}, suggest an appropriate interactive element such as a quiz, mind map, or timeline, and provide a short description of how it should work."
     
@@ -76,7 +84,9 @@ def generate_interactivity(content_chunk):
     except Exception as e:
         return f"Error generating interactivity: {e}"
 
-# Multi-step Workflow
+############################################
+# Multi-Step Workflow
+############################################
 def main():
     st.set_page_config(page_title="Advanced Lesson Builder", layout="wide")
 
@@ -109,8 +119,11 @@ def main():
     else:
         st.error("Invalid page index!")
 
+############################################
 # Sidebar Progress
+############################################
 def show_sidebar_progress():
+    """Display the sidebar for navigation and progress tracking."""
     st.sidebar.title("Lesson Builder Steps")
     steps = ["Metadata", "Content Upload", "Analyze Content", "Storyboard", "Refine Storyboard", "Export"]
     for i, step in enumerate(steps):
@@ -121,7 +134,9 @@ def show_sidebar_progress():
         else:
             st.sidebar.write(f"⬜ {step} - Pending")
 
+############################################
 # Step 1: Metadata
+############################################
 def page_metadata():
     st.title("Step 1: Metadata")
     metadata_inputs = {
@@ -139,7 +154,9 @@ def page_metadata():
         else:
             st.error("Please fill in all fields.")
 
+############################################
 # Step 2: Content Upload
+############################################
 def page_content():
     st.title("Step 2: Content Upload")
     uploaded_textbook_files = st.file_uploader("Upload textbook files", type=["pdf", "docx", "png", "jpg", "jpeg"], accept_multiple_files=True)
@@ -156,7 +173,9 @@ def page_content():
         else:
             st.error("Please upload or enter content.")
 
+############################################
 # Step 3: Analyze Content
+############################################
 def page_analyze():
     st.title("Step 3: Analyze Content")
 
@@ -177,15 +196,12 @@ def page_analyze():
 
     paragraphs = combined_text.split("\n\n")
     data = []
-    for i, para in enumerate(paragraphs):
-        if para.strip():
-            para_emb = embedding_model.encode(para, convert_to_tensor=True)
-            sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
-            data.append({
-                "Chunk ID": i + 1,
-                "Paragraph": para.strip(),
-                "Alignment Score": round(sim_score, 3)
-            })
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_para = {executor.submit(process_paragraph, para, objective_emb): para for para in paragraphs}
+        for future in concurrent.futures.as_completed(future_to_para):
+            result = future.result()
+            if result:
+                data.append(result)
 
     df_analysis = pd.DataFrame(data)
     st.session_state["analysis_df"] = df_analysis
@@ -199,7 +215,15 @@ def page_analyze():
         else:
             st.error("Please make sure the analysis is complete before moving to the next step.")
 
+def process_paragraph(para, objective_emb):
+    embedding_model = load_embedding_model()
+    para_emb = embedding_model.encode(para, convert_to_tensor=True)
+    sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
+    return {"Chunk ID": para, "Paragraph": para.strip(), "Alignment Score": round(sim_score, 3)}
+
+############################################
 # Step 4: Storyboard Creation
+############################################
 def page_storyboard():
     st.title("Step 4: Storyboard Creation with AI-Driven Interactivity")
 
@@ -221,10 +245,14 @@ def page_storyboard():
         st.success("Storyboard with interactivities saved successfully!")
         st.write(st.session_state["screens_df"])
 
+# Continue with Steps 5 and 6...
+############################################
 # Step 5: Refine Storyboard
+############################################
 def page_refine():
     st.title("Step 5: Refine Storyboard")
 
+    # Check if storyboard data is available
     if "screens_df" not in st.session_state or st.session_state["screens_df"].empty:
         st.error("No storyboard available to refine. Please complete Step 4: Storyboard first.")
         return
@@ -236,6 +264,7 @@ def page_refine():
         key="refine_editor"
     )
 
+    # Allow for the modification of interactive elements in the refined storyboard
     st.write("### Add/Modify Interactive Elements:")
     for index, row in edited_df.iterrows():
         st.write(f"#### Screen {index + 1}: {row['Paragraph'][:50]}...")  # Show snippet of content
@@ -247,14 +276,18 @@ def page_refine():
         )
         edited_df.at[index, "Interactive Element"] = interactivity_type
 
+    # Save the refined storyboard back to session state
     if st.button("Save Refinements"):
         st.session_state["screens_df"] = edited_df
         st.success("Refinements saved successfully!")
 
+    # Display the refined storyboard preview
     st.subheader("Refined Storyboard Preview")
     st.dataframe(st.session_state["screens_df"])
 
+############################################
 # Step 6: Export
+############################################
 def page_export():
     st.title("Step 6: Export")
 
@@ -265,19 +298,25 @@ def page_export():
     if st.button("Export to Word"):
         export_to_word(st.session_state["screens_df"], st.session_state["metadata"])
 
+############################################
+# Export Logic
+############################################
 def export_to_word(screens_df, metadata):
     doc = WordDocument()
     doc.add_heading(metadata["Lesson Title"], level=1)
+    
     for _, row in screens_df.iterrows():
         doc.add_heading(f"Screen {row['Chunk ID']}", level=2)
         doc.add_paragraph(row["Paragraph"])
         doc.add_paragraph(f"Estimated Duration: {row.get('Estimated Duration', 'Not Provided')} minutes")
         doc.add_paragraph(f"Interactive Element: {row.get('Interactive Element', 'None')}")
+    
+    # Save the file to memory and allow download
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     st.download_button("Download Word Document", buffer, file_name="storyboard.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-# Run the app
+# Run the App
 if __name__ == "__main__":
     main()
