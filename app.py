@@ -1,35 +1,36 @@
+######################
+# app.py
+######################
 import streamlit as st
 import mysql.connector
 import datetime
 import pandas as pd
 
-# For chunk alignment and optional LLM usage
-import torch
-from sentence_transformers import SentenceTransformer, util
-# For PDF/DOCX parsing
 import PyPDF2
 from docx import Document
-# (Optional) for images with OCR
-# import pytesseract
-# from PIL import Image
-# etc.
 
-###################################
-# 1. DB & AI Setup
-###################################
+# For embeddings + alignment checks
+from sentence_transformers import SentenceTransformer, util
 
+# (Optional) If you integrate LLM summarization, e.g., openai
+# import openai
+
+############################
+# 1) MySQL CONFIG
+############################
 def get_db_connection():
     """
-    Connect to your Hostinger MySQL database.
-    UPDATE these credentials with your actual values:
-      host, user, password, database
-    If your domain is '127.0.0.1' or 'localhost' with port 3306, use those.
+    Connect to your Hostinger MySQL.
+    Update the credentials (host, user, password, database).
     """
-    host = "127.0.0.1"  # or "localhost"
+    # If you want to store them in st.secrets, do that. 
+    # For demonstration, we'll just put placeholders here:
+
+    host = "127.0.0.1"            # or "localhost" if that works
     user = "u628260032_francisdavid"
     password = "Chennai@202475"
     database = "u628260032_academapp"
-    port = 3306
+    port = 3306                   # default MySQL port
 
     try:
         conn = mysql.connector.connect(
@@ -46,14 +47,12 @@ def get_db_connection():
 
 def log_usage_to_db(log_entry):
     """
-    Insert a usage log row into usage_logs.
-    Make sure usage_logs table exists:
-    CREATE TABLE usage_logs (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      log_time TIMESTAMP NOT NULL,
-      screen_index INT,
-      changes TEXT
-    );
+    Insert usage logs into the usage_logs table:
+    usage_logs( id INT AUTO_INCREMENT,
+                log_time TIMESTAMP,
+                screen_index INT,
+                changes TEXT,
+                PRIMARY KEY(id) )
     """
     conn = get_db_connection()
     if not conn:
@@ -61,7 +60,7 @@ def log_usage_to_db(log_entry):
 
     try:
         cursor = conn.cursor()
-        changes_str = str(log_entry.get("changes", {}))
+        changes_str = str(log_entry.get("changes", {}))  # or use json.dumps(...) if you prefer
         log_time = datetime.datetime.now()
 
         sql = """
@@ -75,9 +74,11 @@ def log_usage_to_db(log_entry):
     except Exception as e:
         st.error(f"Error inserting usage log: {e}")
 
+
 def log_user_change_db(screen_index, old_row, new_row):
     """
-    Compare old vs. new, store diffs as usage logs in MySQL.
+    Compare old vs. new row for columns (Screen Title, Text, Estimated Duration).
+    If there's a difference, log it to usage_logs.
     """
     changes = {}
     for col in ["Screen Title", "Text", "Estimated Duration"]:
@@ -93,18 +94,46 @@ def log_user_change_db(screen_index, old_row, new_row):
         }
         log_usage_to_db(log_entry)
 
-# Load embedding model (for alignment checks)
-@st.cache_resource
+############################
+# 2) AI CONFIG
+############################
+
 def load_embedding_model():
-    return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    """
+    Load a small sentence-transformer for chunk alignment checks.
+    """
+    return SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
 embedding_model = load_embedding_model()
 
-###################################
-# 2. Utility parse functions
-###################################
+# If you want LLM summarization, you'd configure openai or another API:
+# openai.api_key = "YOUR_OPENAI_KEY"
+
+def call_llm_for_summary(paragraph):
+    """
+    Example stub for LLM-based summarization. 
+    You can integrate GPT or other providers here, 
+    always verifying no new facts are introduced.
+    """
+    # prompt = f"Summarize this paragraph in 1-2 lines without adding new info:\n\n{paragraph}"
+    # response = openai.Completion.create(
+    #     engine="text-davinci-003",
+    #     prompt=prompt,
+    #     max_tokens=100,
+    #     temperature=0
+    # )
+    # summary = response["choices"][0]["text"].strip()
+    # return summary
+
+    return "LLM summary placeholder (no new content)."
+
+
+############################
+# 3) PARSE FILES
+############################
 
 def parse_pdf(uploaded_pdf):
+    """Extract text from PDF using PyPDF2."""
     text = ""
     try:
         reader = PyPDF2.PdfReader(uploaded_pdf)
@@ -117,6 +146,7 @@ def parse_pdf(uploaded_pdf):
     return text
 
 def parse_docx(uploaded_docx):
+    """Extract text from a .docx file using python-docx."""
     text = ""
     try:
         doc = Document(uploaded_docx)
@@ -126,44 +156,39 @@ def parse_docx(uploaded_docx):
         st.error(f"Error reading DOCX: {e}")
     return text
 
-def parse_image_ocr(uploaded_image):
-    """
-    If you want OCR on images, install pytesseract & PIL, then un-comment.
-    """
-    # from PIL import Image
-    # import pytesseract
-    # image = Image.open(uploaded_image)
-    # text = pytesseract.image_to_string(image)
-    # return text
-    return "(Placeholder) OCR not implemented."
+# def parse_image_ocr(uploaded_image):
+#     """If you want to do OCR on images, do something like pytesseract here."""
+#     from PIL import Image
+#     import pytesseract
+#     image = Image.open(uploaded_image)
+#     text = pytesseract.image_to_string(image)
+#     return text
 
-###################################
-# 3. Main Multi-Page App
-###################################
+############################
+# 4) MULTI-STEP WORKFLOW
+############################
 
 def main():
     st.set_page_config(page_title="Advanced Lesson Builder", layout="wide")
 
-    # Initialize multi-step page index
     if "page" not in st.session_state:
         st.session_state["page"] = 0
-
-    # Where we'll store final screens DataFrame
     if "screens_df" not in st.session_state:
         st.session_state["screens_df"] = pd.DataFrame()
 
     show_progress_in_sidebar()
 
-    # Routing logic
-    if st.session_state["page"] == 0:
+    # 0: Metadata, 1: Content, 2: Analyze, 3: Generate, 4: Refine
+    page = st.session_state["page"]
+    if page == 0:
         page_metadata()
-    elif st.session_state["page"] == 1:
+    elif page == 1:
         page_content()
-    elif st.session_state["page"] == 2:
-        page_chunk_check()
-    elif st.session_state["page"] == 3:
+    elif page == 2:
+        page_analyze()
+    elif page == 3:
         page_generate()
-    elif st.session_state["page"] == 4:
+    elif page == 4:
         page_refine()
     else:
         st.write("Invalid page index!")
@@ -172,9 +197,9 @@ def show_progress_in_sidebar():
     st.sidebar.title("Lesson Steps Progress")
     steps = [
         "Metadata",
-        "Content Collection",
-        "Analyze Alignment",
-        "Generate Screens",
+        "Content (Upload/Paste)",
+        "Analyze (Chunk + Summaries)",
+        "Generate Outline",
         "Refine & Finalize"
     ]
     current_page = st.session_state["page"]
@@ -186,12 +211,11 @@ def show_progress_in_sidebar():
         else:
             st.sidebar.write(f"⬜ {step_name} - Pending")
 
-###################################
-# Page 0: Metadata
-###################################
+############################
+# PAGE 0: METADATA
+############################
 def page_metadata():
-    st.title("Lesson Builder: Step 1 - Metadata")
-    st.write("Enter your high-level metadata for this lesson.")
+    st.title("Step 1: Lesson Metadata")
 
     course_title = st.text_input("Course # and Title", "")
     module_title = st.text_input("Module # and Title", "")
@@ -211,148 +235,157 @@ def page_metadata():
         }
         st.session_state["page"] = 1
 
-###################################
-# Page 1: Content
-###################################
+############################
+# PAGE 1: CONTENT
+############################
 def page_content():
-    st.title("Lesson Builder: Step 2 - Content Collection")
-    st.write("You can upload PDF/DOCX/images or paste text for both Textbook and SME content. No new content will be invented—only reorganized/refined if needed.")
+    st.title("Step 2: Content Collection")
+    st.write("Upload PDF/DOCX or an image, OR paste text. No new content will be invented, only reorganized if needed.")
 
     col1, col2 = st.columns(2)
 
-    # Textbook
     with col1:
         st.subheader("Textbook Content")
-        tb_file = st.file_uploader(
-            "Upload PDF, DOCX, or image for textbook content",
-            type=["pdf","docx","png","jpg","jpeg"],
-            key="tb_file"
-        )
-        tb_text_fallback = st.text_area("Or paste textbook text below", height=150)
+        tb_file = st.file_uploader("Upload PDF, DOCX, or image for textbook", 
+                                   type=["pdf","docx","png","jpg","jpeg"], 
+                                   key="textbook_file")
+        tb_text_fallback = st.text_area("Or paste textbook text here", height=150)
+
         textbook_parsed = ""
-
         if tb_file is not None:
-            if tb_file.name.lower().endswith(".pdf"):
+            fname = tb_file.name.lower()
+            if fname.endswith(".pdf"):
                 textbook_parsed = parse_pdf(tb_file)
-            elif tb_file.name.lower().endswith(".docx"):
+            elif fname.endswith(".docx"):
                 textbook_parsed = parse_docx(tb_file)
-            elif tb_file.name.lower().endswith((".png",".jpg",".jpeg")):
-                textbook_parsed = parse_image_ocr(tb_file)
+            elif fname.endswith((".png",".jpg",".jpeg")):
+                # placeholder for OCR
+                textbook_parsed = "(Placeholder) OCR for textbook not implemented."
             else:
-                st.warning("Unsupported file type for textbook content.")
+                st.warning("Unsupported file type for textbook.")
+        final_textbook = textbook_parsed.strip() or tb_text_fallback.strip()
 
-        final_textbook_text = textbook_parsed.strip() or tb_text_fallback.strip()
-
-    # SME
     with col2:
         st.subheader("SME Content")
-        sme_file = st.file_uploader(
-            "Upload PDF, DOCX, or image for SME content",
-            type=["pdf","docx","png","jpg","jpeg"],
-            key="sme_file"
-        )
-        sme_text_fallback = st.text_area("Or paste SME text below", height=150)
+        sme_file = st.file_uploader("Upload PDF, DOCX, or image for SME", 
+                                    type=["pdf","docx","png","jpg","jpeg"], 
+                                    key="sme_file")
+        sme_text_fallback = st.text_area("Or paste SME text here", height=150)
+
         sme_parsed = ""
-
         if sme_file is not None:
-            if sme_file.name.lower().endswith(".pdf"):
+            fname2 = sme_file.name.lower()
+            if fname2.endswith(".pdf"):
                 sme_parsed = parse_pdf(sme_file)
-            elif sme_file.name.lower().endswith(".docx"):
+            elif fname2.endswith(".docx"):
                 sme_parsed = parse_docx(sme_file)
-            elif sme_file.name.lower().endswith((".png",".jpg",".jpeg")):
-                sme_parsed = parse_image_ocr(sme_file)
+            elif fname2.endswith((".png",".jpg",".jpeg")):
+                sme_parsed = "(Placeholder) OCR for SME not implemented."
             else:
-                st.warning("Unsupported file type for SME content.")
+                st.warning("Unsupported file type for SME.")
+        final_sme = sme_parsed.strip() or sme_text_fallback.strip()
 
-        final_sme_text = sme_parsed.strip() or sme_text_fallback.strip()
-
-    # Option for concept teaching video
     include_video = st.checkbox("Include Concept Teaching Video?")
 
     if st.button("Next"):
-        st.session_state["textbook_text"] = final_textbook_text
-        st.session_state["sme_text"] = final_sme_text
+        st.session_state["textbook_text"] = final_textbook
+        st.session_state["sme_text"] = final_sme
         st.session_state["include_video"] = include_video
-
         st.session_state["page"] = 2
 
-###################################
-# Page 2: Chunk + Alignment Check
-###################################
-def page_chunk_check():
-    st.title("Lesson Builder: Step 3 - Analyze Alignment")
-    st.write("We'll chunk your text, check alignment with the lesson objective, and do a rough word count for duration.")
+############################
+# PAGE 2: ANALYZE (CHUNK + SUMMARIES)
+############################
+def page_analyze():
+    st.title("Step 3: Analyze Content (Chunk + LLM Summaries)")
 
     metadata = st.session_state.get("metadata", {})
-    objective = metadata.get("Lesson Objective", "")
-    textbook_text = st.session_state.get("textbook_text", "")
-    sme_text = st.session_state.get("sme_text", "")
+    objective = metadata.get("Lesson Objective","")
+    textbook = st.session_state.get("textbook_text","")
+    sme = st.session_state.get("sme_text","")
 
-    combined_text = (textbook_text + "\n" + sme_text).strip()
-    if not combined_text:
-        st.warning("No content found. Please go back and provide content.")
+    if not objective.strip():
+        st.warning("No lesson objective found. Please go back to Step 1.")
         return
 
-    if st.button("Analyze"):
+    combined_text = (textbook + "\n" + sme).strip()
+    if not combined_text:
+        st.warning("No content found. Please go back to Step 2.")
+        return
+
+    if st.button("Analyze Now"):
         paragraphs = [p.strip() for p in combined_text.split("\n") if p.strip()]
-        results_df = analyze_chunks(paragraphs, objective)
-        st.session_state["analysis_df"] = results_df
-        st.success("Analysis complete!")
+        df_analysis = analyze_chunks_with_llm(paragraphs, objective)
+        st.session_state["analysis_df"] = df_analysis
+        st.success("Analysis complete. See below.")
 
     if "analysis_df" in st.session_state:
-        df = st.session_state["analysis_df"]
-        st.dataframe(df)
-        total_words = df["word_count"].sum()
-        minutes_est = total_words / 140.0
-        st.write(f"Total word count: {total_words}, approx. {minutes_est:.1f} minutes.")
-        if minutes_est < 10:
-            st.warning("Might be less than 15 minutes. Consider adding more content.")
-        elif minutes_est > 15:
-            st.warning("Likely more than 15 minutes. You may need to split or shorten content.")
+        df_show = st.session_state["analysis_df"]
+        st.dataframe(df_show)
+        total_words = df_show["word_count"].sum()
+        est_minutes = total_words / 140.0
+        st.write(f"Total words: {total_words}, approx {est_minutes:.1f} minutes.")
+        if est_minutes < 10:
+            st.warning("Might be under 15 minutes. Possibly need more content or SME input.")
+        elif est_minutes > 15:
+            st.warning("Likely exceeds 15 minutes. Consider splitting or removing redundancies.")
 
-        if st.button("Next: Generate Screens"):
+        if st.button("Next: Generate Outline"):
             st.session_state["page"] = 3
 
-def analyze_chunks(paragraphs, objective):
+def analyze_chunks_with_llm(paragraphs, objective):
+    """
+    For each paragraph:
+      - embedding alignment to objective
+      - optional LLM summary
+    """
     data = []
-    obj_emb = embedding_model.encode(objective, convert_to_tensor=True)
+    objective_emb = embedding_model.encode(objective, convert_to_tensor=True)
     for i, para in enumerate(paragraphs):
         para_emb = embedding_model.encode(para, convert_to_tensor=True)
-        sim_score = float(util.pytorch_cos_sim(para_emb, obj_emb)[0][0])
+        sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
         word_count = len(para.split())
+
+        # Summarize with LLM (placeholder)
+        summary = call_llm_for_summary(para)
+        # If you want to do a diff check that summary doesn't add new facts,
+        # you'd implement that here.
+
         data.append({
             "chunk_id": i+1,
-            "paragraph": para,
+            "original_paragraph": para,
             "alignment_score": round(sim_score, 3),
-            "word_count": word_count
+            "word_count": word_count,
+            "llm_summary": summary
         })
     return pd.DataFrame(data)
 
-###################################
-# Page 3: Generate
-###################################
+############################
+# PAGE 3: GENERATE OUTLINE
+############################
 def page_generate():
-    st.title("Lesson Builder: Step 4 - Generate Screens")
-    st.write("We’ll build an 8–10 screen outline referencing your content, then you can refine it.")
+    st.title("Step 4: Generate Lesson Outline")
 
     metadata = st.session_state.get("metadata", {})
-    combined_text = (st.session_state.get("textbook_text","") + "\n" + st.session_state.get("sme_text","")).strip()
+    textbook_text = st.session_state.get("textbook_text","")
+    sme_text = st.session_state.get("sme_text","")
     include_video = st.session_state.get("include_video", False)
 
-    if st.button("Generate Outline"):
-        screens_df = generate_screens(metadata, combined_text, include_video)
-        st.session_state["screens_df"] = screens_df
-        st.success("Screens generated. See below.")
+    if st.button("Generate Screens"):
+        df_screens = generate_screens(metadata, textbook_text, sme_text, include_video)
+        st.session_state["screens_df"] = df_screens
+        st.success("Lesson screens generated. Scroll down to preview.")
 
     df_screens = st.session_state.get("screens_df", pd.DataFrame())
     if not df_screens.empty:
         st.dataframe(df_screens)
-        if st.button("Next: Refine & Finalize"):
+        if st.button("Next: Refine + Finalize"):
             st.session_state["page"] = 4
 
-def generate_screens(metadata, combined_text, include_video):
+def generate_screens(metadata, textbook_text, sme_text, include_video):
     """
-    Basic function to produce 8-10 screens referencing the combined text.
+    Create ~8-10 screens for a ~15-min lesson, referencing user text
+    without inventing new content.
     """
     screens = []
     total_duration = 0
@@ -364,49 +397,43 @@ def generate_screens(metadata, combined_text, include_video):
         "Screen Type": "Text and Graphic",
         "Template": "Canvas",
         "Estimated Duration": "2 minutes",
-        "Text": f"Welcome to {metadata.get('Lesson Type','')}! Objective: {metadata.get('Lesson Objective','')}\n\nHook scenario could go here.",
+        "Text": f"Welcome to {metadata.get('Lesson Type','')}! Objective: {metadata.get('Lesson Objective','')}\n\nHook or scenario here.",
         "Content Source": "Placeholder"
     })
     total_duration += 2
 
-    # For demonstration, split combined_text in half
-    splitted = combined_text.split()
-    mid = len(splitted)//2
-    text_part1 = " ".join(splitted[:mid])
-    text_part2 = " ".join(splitted[mid:])
-
-    # 2) Key Concept 1
+    # 2) Key Concept #1 from textbook
     screens.append({
         "Screen Number": 2,
         "Screen Title": "Key Concept 1",
         "Screen Type": "Text and Graphic",
         "Template": "Accordion",
         "Estimated Duration": "2 minutes",
-        "Text": text_part1 or "No content provided.",
-        "Content Source": "User Content"
+        "Text": textbook_text or "No textbook content provided.",
+        "Content Source": "User Provided"
     })
     total_duration += 2
 
-    # 3) Key Concept 2
+    # 3) Key Concept #2 from SME
     screens.append({
         "Screen Number": 3,
         "Screen Title": "Key Concept 2",
         "Screen Type": "Text and Graphic",
         "Template": "Canvas",
         "Estimated Duration": "2 minutes",
-        "Text": text_part2 or "No content provided (second half).",
-        "Content Source": "User Content"
+        "Text": sme_text or "No SME content provided.",
+        "Content Source": "User Provided"
     })
     total_duration += 2
 
-    # 4) Practice Interactive
+    # 4) Practice Interactive #1
     screens.append({
         "Screen Number": 4,
         "Screen Title": "Check Your Understanding #1",
         "Screen Type": "Practice Interactive",
         "Template": "Quiz",
         "Estimated Duration": "1 minute",
-        "Text": "Placeholder quiz. No new info from AI.",
+        "Text": "Placeholder quiz from user text (no new info).",
         "Content Source": "Placeholder"
     })
     total_duration += 1
@@ -418,110 +445,109 @@ def generate_screens(metadata, combined_text, include_video):
         "Screen Type": "Animation Placeholder",
         "Template": "Animation",
         "Estimated Duration": "2 minutes",
-        "Text": "Link an animation here if you have one.",
+        "Text": "Link an animation here if you have it. No new content.",
         "Content Source": "Placeholder"
     })
     total_duration += 2
 
-    # Optional video
-    next_num = 6
+    # optional concept video
+    screen_num = 6
     if include_video:
         screens.append({
-            "Screen Number": 6,
+            "Screen Number": screen_num,
             "Screen Title": "Concept Teaching Video",
             "Screen Type": "Video Placeholder",
             "Template": "Video",
             "Estimated Duration": "2 minutes",
-            "Text": "User-chosen concept video. No new content added.",
+            "Text": "User-chosen video. No new content from AI.",
             "Content Source": "Placeholder"
         })
         total_duration += 2
-        next_num = 7
+        screen_num += 1
 
-    # 6) Advanced Organizer
+    # advanced organizer #1
     screens.append({
-        "Screen Number": next_num,
+        "Screen Number": screen_num,
         "Screen Title": "Advanced Organizer #1",
         "Screen Type": "Text and Graphic",
         "Template": "Complex Illustration",
         "Estimated Duration": "1 minute",
-        "Text": "Infographic summarizing the lesson so far.",
+        "Text": "Diagram or infographic summarizing the lesson so far.",
         "Content Source": "Placeholder"
     })
     total_duration += 1
-    next_num += 1
+    screen_num += 1
 
-    # 7) Another Quiz
+    # practice #2
     screens.append({
-        "Screen Number": next_num,
+        "Screen Number": screen_num,
         "Screen Title": "Check Your Understanding #2",
         "Screen Type": "Practice Interactive",
         "Template": "Quiz",
         "Estimated Duration": "1 minute",
-        "Text": "Another short quiz. No new info introduced.",
+        "Text": "Another short interactive scenario or question. No new content.",
         "Content Source": "Placeholder"
     })
     total_duration += 1
-    next_num += 1
+    screen_num += 1
 
-    # 8) Reflection
+    # reflection
     screens.append({
-        "Screen Number": next_num,
+        "Screen Number": screen_num,
         "Screen Title": "Reflection / Think About This",
         "Screen Type": "Text and Graphic",
         "Template": "Reflection",
         "Estimated Duration": "1 minute",
-        "Text": "End with a reflection screen to help learners apply concepts.",
+        "Text": "Help learners synthesize concepts and apply them to real-world scenarios.",
         "Content Source": "Placeholder"
     })
     total_duration += 1
 
-    st.write(f"Approx total lesson duration: ~{total_duration} minutes")
+    st.write(f"Approx. total duration: ~{total_duration} minutes.")
     return pd.DataFrame(screens)
 
-###################################
-# Page 4: Refine
-###################################
+############################
+# PAGE 4: REFINE
+############################
 def page_refine():
-    st.title("Lesson Builder: Step 5 - Refine & Finalize")
+    st.title("Step 5: Refine & Finalize")
+
     df = st.session_state.get("screens_df", pd.DataFrame())
     if df.empty:
-        st.write("No screens found. Go back and generate first.")
+        st.write("No screens to refine. Please go back and generate first.")
         return
 
-    st.write("Review each screen. Only use your provided content, no new info from AI.")
+    st.write("Review each screen. If you edit text/duration, changes get logged to MySQL (usage_logs).")
+
     updated_rows = []
     for i, row in df.iterrows():
         with st.expander(f"Screen {row['Screen Number']}: {row['Screen Title']}"):
             new_title = st.text_input("Screen Title", row["Screen Title"], key=f"title_{i}")
             new_text = st.text_area("Text", row["Text"], key=f"text_{i}")
-            new_duration = st.text_input("Estimated Duration", row["Estimated Duration"], key=f"dur_{i}")
+            new_duration = st.text_input("Estimated Duration", row["Estimated Duration"], key=f"duration_{i}")
+
             updated_rows.append((i, new_title, new_text, new_duration))
 
     if st.button("Apply Changes"):
-        # Compare old vs. new, log in MySQL
-        for idx, t, x, d in updated_rows:
+        for (idx, t, x, d) in updated_rows:
             old_row = df.loc[idx].copy()
             df.at[idx, "Screen Title"] = t
             df.at[idx, "Text"] = x
             df.at[idx, "Estimated Duration"] = d
+            # Log the difference
             log_user_change_db(idx, old_row, df.loc[idx])
+
         st.session_state["screens_df"] = df
-        st.success("Refinements applied & usage logs saved to DB!")
+        st.success("Refinements applied & usage logs stored in MySQL!")
         st.dataframe(df)
 
     if st.button("Finish"):
-        st.write("Lesson creation complete!")
+        st.write("Lesson creation workflow complete!")
         st.balloons()
-
-        # Optionally let user download final screens as CSV
+        # optional: allow CSV/Excel download
         csv_data = df.to_csv(index=False)
-        st.download_button(
-            "Download Final Screens CSV",
-            data=csv_data,
-            file_name="final_lesson_screens.csv",
-            mime="text/csv"
-        )
+        st.download_button("Download Final Screens as CSV", csv_data, "final_screens.csv", "text/csv")
+
 
 if __name__ == "__main__":
     main()
