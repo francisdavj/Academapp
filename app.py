@@ -41,28 +41,6 @@ def summarize_paragraph(paragraph, summarizer):
         st.error(f"Summarization Error: {e}")
         return "Summary not available."
 
-def generate_lesson_screens(aligned_paragraphs, objective, generator):
-    """
-    Generate lesson screens based on aligned paragraphs and objectives.
-    """
-    try:
-        combined_text = "\n\n".join(aligned_paragraphs)
-        prompt = (
-            f"Create a structured lesson based on the following objective:\n\n"
-            f"Objective: {objective}\n\n"
-            f"Content:\n{combined_text}\n\n"
-            f"Generate lesson screens with titles, text, estimated durations, and placeholders for interactive elements."
-        )
-        generated_text = generator(prompt, max_length=2000, num_return_sequences=1)[0]['generated_text']
-        start_idx = generated_text.find('[')
-        end_idx = generated_text.rfind(']') + 1
-        json_str = generated_text[start_idx:end_idx]
-        screens = json.loads(json_str)
-        return screens
-    except Exception as e:
-        st.error(f"Generation Error: {e}")
-        return []
-
 ############################################
 # 2) File Parsing
 ############################################
@@ -120,16 +98,24 @@ def parse_multiple_files(uploaded_files):
     return combined_text
 
 ############################################
-# 3) Multi-Step Flow
+# 3) Multi-Step Flow with Resume Capability
 ############################################
 def main():
     st.set_page_config(page_title="Advanced Lesson Builder", layout="wide")
 
+    # Initialize session state for navigation and data
     if "page" not in st.session_state:
         st.session_state["page"] = 0
     if "screens_df" not in st.session_state:
         st.session_state["screens_df"] = pd.DataFrame(columns=["Screen Title", "Text", "Estimated Duration", "Interactive Element"])
+    if "metadata" not in st.session_state:
+        st.session_state["metadata"] = {}
+    if "textbook_text" not in st.session_state:
+        st.session_state["textbook_text"] = ""
+    if "sme_text" not in st.session_state:
+        st.session_state["sme_text"] = ""
 
+    # Navigation and step execution
     show_sidebar_progress()
     page = st.session_state["page"]
 
@@ -150,7 +136,7 @@ def main():
 
 def show_sidebar_progress():
     """
-    Display the sidebar for progress tracking.
+    Display the sidebar for progress tracking and navigation.
     """
     st.sidebar.title("Lesson Steps Progress")
     steps = ["Metadata", "Content", "Analyze", "Generate", "Refine", "Export"]
@@ -172,20 +158,20 @@ def page_metadata():
     """
     st.title("Lesson Builder: Step 1 - Metadata")
     metadata_inputs = {
-        "Course and Title": st.text_input("Course # and Title", ""),
-        "Module and Title": st.text_input("Module # and Title", ""),
-        "Unit and Title": st.text_input("Unit # and Title", ""),
-        "Lesson and Title": st.text_input("Lesson # and Title", ""),
-        "Lesson Objective": st.text_input("Lesson Objective", ""),
-        "Lesson Type": st.selectbox("Lesson Type", ["Core Learning Lesson", "Practice Lesson", "Other"])
+        "Course and Title": st.text_input("Course # and Title", st.session_state["metadata"].get("Course and Title", "")),
+        "Module and Title": st.text_input("Module # and Title", st.session_state["metadata"].get("Module and Title", "")),
+        "Unit and Title": st.text_input("Unit # and Title", st.session_state["metadata"].get("Unit and Title", "")),
+        "Lesson and Title": st.text_input("Lesson # and Title", st.session_state["metadata"].get("Lesson and Title", "")),
+        "Lesson Objective": st.text_input("Lesson Objective", st.session_state["metadata"].get("Lesson Objective", "")),
+        "Lesson Type": st.selectbox("Lesson Type", ["Core Learning Lesson", "Practice Lesson", "Other"], index=0)
     }
 
     if st.button("Next"):
         if not all(metadata_inputs.values()):
             st.error("Please fill in all metadata fields.")
-            return
-        st.session_state["metadata"] = metadata_inputs
-        st.session_state["page"] = 1
+        else:
+            st.session_state["metadata"] = metadata_inputs
+            st.session_state["page"] = 1
 
 def page_content():
     """
@@ -197,12 +183,12 @@ def page_content():
     # Textbook content upload and manual text input
     st.subheader("Textbook Content")
     uploaded_textbook_files = st.file_uploader("Upload files for Textbook Content", type=["pdf", "docx", "png", "jpg", "jpeg"], key="textbook_files", accept_multiple_files=True)
-    textbook_manual_text = st.text_area("Or enter Textbook Content manually", key="textbook_manual_input")
+    textbook_manual_text = st.text_area("Or enter Textbook Content manually", st.session_state.get("textbook_text", ""))
 
     # SME content upload and manual text input
     st.subheader("SME Content")
     uploaded_sme_files = st.file_uploader("Upload files for SME Content", type=["pdf", "docx", "png", "jpg", "jpeg"], key="sme_files", accept_multiple_files=True)
-    sme_manual_text = st.text_area("Or enter SME Content manually", key="sme_manual_input")
+    sme_manual_text = st.text_area("Or enter SME Content manually", st.session_state.get("sme_text", ""))
 
     # Combine parsed content and manual text
     textbook_parsed = parse_multiple_files(uploaded_textbook_files) if uploaded_textbook_files else ""
@@ -219,9 +205,42 @@ def page_content():
             st.session_state["sme_text"] = combined_sme_content
             st.session_state["page"] = 2
 
-# Remaining steps (Analyze, Generate, Refine, Export) remain unchanged and can use the combined content from Step 2.
+def page_analyze():
+    """
+    Step 3: Analyze chunks for alignment and summarization.
+    """
+    st.title("Lesson Builder: Step 3 - Analyze")
+
+    # Check if content exists
+    if not st.session_state.get("textbook_text") and not st.session_state.get("sme_text"):
+        st.error("No content found. Please go back to Step 2.")
+        return
+
+    combined_text = st.session_state.get("textbook_text", "") + "\n" + st.session_state.get("sme_text", "")
+    summarizer = load_summarizer()
+
+    if st.button("Analyze Now"):
+        paragraphs = [p for p in combined_text.split("\n") if p.strip()]
+        data = []
+        embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        objective = st.session_state["metadata"].get("Lesson Objective", "")
+        objective_emb = embedding_model.encode(objective, convert_to_tensor=True)
+
+        for i, para in enumerate(paragraphs):
+            para_emb = embedding_model.encode(para, convert_to_tensor=True)
+            sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
+            summary = summarize_paragraph(para, summarizer)
+            data.append({"Chunk ID": i + 1, "Paragraph": para, "Summary": summary, "Alignment Score": round(sim_score, 3)})
+
+        df_analysis = pd.DataFrame(data)
+        st.session_state["analysis_df"] = df_analysis
+        st.success("Analysis completed!")
+
+    if "analysis_df" in st.session_state:
+        st.dataframe(st.session_state["analysis_df"])
+
 ############################################
-# Final Steps and Output Generation
+# Final Steps
 ############################################
 if __name__ == "__main__":
     main()
