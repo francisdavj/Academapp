@@ -128,66 +128,88 @@ def page_metadata():
         }
         st.session_state["page"] = 1
 
-
 ############################################
 # Page 1: Content
 ############################################
 def page_content():
     st.title("Lesson Builder: Step 2 - Content")
-    st.write("Upload PDF/DOCX/image or paste text for textbook and SME content.")
+    st.write("Upload multiple files (PDF/DOCX/images) or paste text for textbook and SME content.")
 
     col1, col2 = st.columns(2)
 
+    # Placeholder for extracted text
+    final_textbook = ""
+    final_sme = ""
+
+    ####################################
+    # Textbook Content Upload and Parsing
+    ####################################
     with col1:
         st.subheader("Textbook Content")
-        tb_file = st.file_uploader(
-            "Upload textbook content (PDF, DOCX, or images)", 
-            type=["pdf", "docx", "png", "jpg", "jpeg"], 
-            key="textbook_file"
+        tb_files = st.file_uploader(
+            "Upload textbook content (PDF, DOCX, or images)",
+            type=["pdf", "docx", "png", "jpg", "jpeg"],
+            accept_multiple_files=True,
+            key="textbook_files"
         )
         tb_text_fallback = st.text_area("Or paste textbook text below", height=150)
 
-        # Parse uploaded file
-        textbook_parsed = ""
-        if tb_file:
-            fname = tb_file.name.lower()
-            if fname.endswith(".pdf"):
-                textbook_parsed = parse_pdf(tb_file)
-            elif fname.endswith(".docx"):
-                textbook_parsed = parse_docx(tb_file)
-            elif fname.endswith((".png", ".jpg", ".jpeg")):
-                textbook_parsed = "(Placeholder) OCR functionality for textbook images not implemented."
-            else:
-                st.warning("Unsupported file type for textbook content.")
-        final_textbook = textbook_parsed.strip() or tb_text_fallback.strip()
+        if tb_files:
+            textbook_parsed = []
+            for tb_file in tb_files:
+                fname = tb_file.name.lower()
+                if fname.endswith(".pdf"):
+                    textbook_parsed.append(parse_pdf(tb_file))
+                elif fname.endswith(".docx"):
+                    textbook_parsed.append(parse_docx(tb_file))
+                elif fname.endswith((".png", ".jpg", ".jpeg")):
+                    textbook_parsed.append(parse_image_ocr(tb_file))
+                else:
+                    st.warning(f"Unsupported file type: {fname}")
+            # Combine parsed content
+            final_textbook = "\n".join(textbook_parsed).strip()
 
+        # Fallback to manual input if no files
+        final_textbook = final_textbook or tb_text_fallback.strip()
+
+    ####################################
+    # SME Content Upload and Parsing
+    ####################################
     with col2:
         st.subheader("SME Content")
-        sme_file = st.file_uploader(
-            "Upload SME content (PDF, DOCX, or images)", 
-            type=["pdf", "docx", "png", "jpg", "jpeg"], 
-            key="sme_file"
+        sme_files = st.file_uploader(
+            "Upload SME content (PDF, DOCX, or images)",
+            type=["pdf", "docx", "png", "jpg", "jpeg"],
+            accept_multiple_files=True,
+            key="sme_files"
         )
         sme_text_fallback = st.text_area("Or paste SME text below", height=150)
 
-        # Parse uploaded file
-        sme_parsed = ""
-        if sme_file:
-            fname2 = sme_file.name.lower()
-            if fname2.endswith(".pdf"):
-                sme_parsed = parse_pdf(sme_file)
-            elif fname2.endswith(".docx"):
-                sme_parsed = parse_docx(sme_file)
-            elif fname2.endswith((".png", ".jpg", ".jpeg")):
-                sme_parsed = "(Placeholder) OCR functionality for SME images not implemented."
-            else:
-                st.warning("Unsupported file type for SME content.")
-        final_sme = sme_parsed.strip() or sme_text_fallback.strip()
+        if sme_files:
+            sme_parsed = []
+            for sme_file in sme_files:
+                fname = sme_file.name.lower()
+                if fname.endswith(".pdf"):
+                    sme_parsed.append(parse_pdf(sme_file))
+                elif fname.endswith(".docx"):
+                    sme_parsed.append(parse_docx(sme_file))
+                elif fname.endswith((".png", ".jpg", ".jpeg")):
+                    sme_parsed.append(parse_image_ocr(sme_file))
+                else:
+                    st.warning(f"Unsupported file type: {fname}")
+            # Combine parsed content
+            final_sme = "\n".join(sme_parsed).strip()
 
+        # Fallback to manual input if no files
+        final_sme = final_sme or sme_text_fallback.strip()
+
+    ####################################
+    # Save Data and Proceed to Next Step
+    ####################################
     if st.button("Next"):
         st.session_state["textbook_text"] = final_textbook
         st.session_state["sme_text"] = final_sme
-        st.session_state["page"] = 2
+        st.session_state["page"] = 2  # Move to Analyze Phase
 ############################################
 # Page 2: Analyze (Chunk + Summaries)
 ############################################
