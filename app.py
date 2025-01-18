@@ -5,10 +5,7 @@ import pandas as pd
 
 import PyPDF2
 from docx import Document
-
-# For embedding-based chunk alignment
 from sentence_transformers import SentenceTransformer, util
-
 
 ############################################
 # 1) MySQL Config and Logging Functions
@@ -16,8 +13,7 @@ from sentence_transformers import SentenceTransformer, util
 
 def get_db_connection():
     """
-    Connect to your MySQL DB using Streamlit secrets.
-    This securely fetches the database credentials.
+    Connect to MySQL DB using Streamlit secrets.
     """
     try:
         conn = mysql.connector.connect(
@@ -32,10 +28,9 @@ def get_db_connection():
         st.error(f"Could not connect to MySQL: {e}")
         return None
 
-
 def log_usage_to_db(log_entry):
     """
-    Insert usage logs into the usage_logs table (id, log_time, screen_index, changes TEXT).
+    Insert usage logs into the usage_logs table.
     """
     conn = get_db_connection()
     if not conn:
@@ -57,27 +52,37 @@ def log_usage_to_db(log_entry):
     except Exception as e:
         st.error(f"Error inserting usage log: {e}")
 
+def log_user_change_db(screen_index, old_row, new_row):
+    """
+    Log changes made by users to the database.
+    """
+    changes = {}
+    for col in ["Screen Title", "Text", "Estimated Duration"]:
+        old_val = old_row[col]
+        new_val = new_row[col]
+        if old_val != new_val:
+            changes[col] = {"old": old_val, "new": new_val}
+
+    if changes:
+        log_entry = {
+            "screen_index": screen_index,
+            "changes": changes
+        }
+        log_usage_to_db(log_entry)
 
 ############################################
 # 2) Advanced AI Setup
 ############################################
 
 def load_embedding_model():
-    """
-    Load a small sentence-transformer for chunk alignment checks.
-    """
+    """Load a sentence transformer model."""
     return SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-
 
 embedding_model = load_embedding_model()
 
-
 def call_llm_for_summary(paragraph):
-    """
-    Stub for LLM-based summarization. Must ensure no new facts are introduced.
-    """
+    """Stub for LLM-based summarization."""
     return "LLM summary placeholder (no new content)."
-
 
 ############################################
 # 3) File Parsing
@@ -96,7 +101,6 @@ def parse_pdf(uploaded_pdf):
         st.error(f"Error reading PDF: {e}")
     return text
 
-
 def parse_docx(uploaded_docx):
     """Extract text from .docx using python-docx."""
     text = ""
@@ -107,7 +111,6 @@ def parse_docx(uploaded_docx):
     except Exception as e:
         st.error(f"Error reading DOCX: {e}")
     return text
-
 
 ############################################
 # 4) Multi-Step Flow
@@ -137,7 +140,6 @@ def main():
     else:
         st.write("Invalid page index!")
 
-
 def show_sidebar_progress():
     st.sidebar.title("Lesson Steps Progress")
     steps = ["Metadata", "Content", "Analyze", "Generate", "Refine"]
@@ -150,10 +152,10 @@ def show_sidebar_progress():
         else:
             st.sidebar.write(f"⬜ {step_name} - Pending")
 
-
 ############################################
 # Page 0: Metadata
 ############################################
+
 def page_metadata():
     st.title("Lesson Builder: Step 1 - Metadata")
     course_title = st.text_input("Course # and Title", "")
@@ -174,25 +176,45 @@ def page_metadata():
         }
         st.session_state["page"] = 1
 
-
 ############################################
 # Page 1: Content
 ############################################
+
 def page_content():
     st.title("Lesson Builder: Step 2 - Content")
     st.write("Upload PDF/DOCX/image or paste text for each category.")
 
-    tb_file = st.file_uploader("Upload Textbook File (PDF/DOCX)", type=["pdf", "docx"])
-    sme_file = st.file_uploader("Upload SME File (PDF/DOCX)", type=["pdf", "docx"])
+    col1, col2 = st.columns(2)
 
-    tb_text = parse_pdf(tb_file) if tb_file else st.text_area("Or paste textbook content", height=150)
-    sme_text = parse_docx(sme_file) if sme_file else st.text_area("Or paste SME content", height=150)
+    with col1:
+        st.subheader("Textbook Content")
+        tb_file = st.file_uploader("Upload PDF, DOCX, or image for textbook content",
+                                   type=["pdf","docx","png","jpg","jpeg"])
+        tb_text_fallback = st.text_area("Or paste textbook text below", height=150)
+
+        textbook_parsed = parse_pdf(tb_file) if tb_file else tb_text_fallback.strip()
+
+    with col2:
+        st.subheader("SME Content")
+        sme_file = st.file_uploader("Upload PDF, DOCX, or image for SME content",
+                                    type=["pdf","docx","png","jpg","jpeg"])
+        sme_text_fallback = st.text_area("Or paste SME text below", height=150)
+
+        sme_parsed = parse_pdf(sme_file) if sme_file else sme_text_fallback.strip()
+
+    include_video = st.checkbox("Include Concept Teaching Video?")
 
     if st.button("Next"):
-        st.session_state["textbook_text"] = tb_text
-        st.session_state["sme_text"] = sme_text
+        st.session_state["textbook_text"] = textbook_parsed
+        st.session_state["sme_text"] = sme_parsed
+        st.session_state["include_video"] = include_video
         st.session_state["page"] = 2
 
+############################################
+# Remaining Steps...
+############################################
+
+# Repeat for `page_analyze`, `page_generate`, and `page_refine`.
 
 if __name__ == "__main__":
     main()
