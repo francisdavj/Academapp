@@ -9,11 +9,8 @@ from docx import Document as WordDocument
 import io
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
 
-############################################
-# Helper Functions for File Parsing
-############################################
+# Helper functions for file parsing
 def parse_pdf(uploaded_pdf):
-    """Extract text from PDF."""
     text = ""
     try:
         reader = PyPDF2.PdfReader(uploaded_pdf)
@@ -25,7 +22,6 @@ def parse_pdf(uploaded_pdf):
     return text
 
 def parse_docx(uploaded_docx):
-    """Extract text from DOCX files."""
     text = ""
     try:
         doc = Document(uploaded_docx)
@@ -36,7 +32,6 @@ def parse_docx(uploaded_docx):
     return text
 
 def parse_image(uploaded_image):
-    """Extract text from images using OCR."""
     text = ""
     try:
         image = Image.open(uploaded_image)
@@ -46,7 +41,6 @@ def parse_image(uploaded_image):
     return text
 
 def parse_multiple_files(uploaded_files):
-    """Parse multiple uploaded files and combine their content."""
     combined_text = ""
     for file in uploaded_files:
         if file.name.endswith(".pdf"):
@@ -57,33 +51,24 @@ def parse_multiple_files(uploaded_files):
             combined_text += parse_image(file) + "\n"
     return combined_text
 
-############################################
-# AI Model Setup
-############################################
+# AI Model Setup (Sentence Transformers for alignment, GPT for interactivity)
 @st.cache_resource
 def load_embedding_model():
-    """Load the SentenceTransformer model."""
     return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
-# Define a pipeline for GPT-based interaction generation
 def load_gpt_model():
-    """Load a GPT-based model for content generation"""
-    model_name = "EleutherAI/gpt-neo-2.7B"  # Using GPT-Neo for interactivity suggestions
+    model_name = "EleutherAI/gpt-neo-2.7B"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
     generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
     return generator
 
 def generate_interactivity(content_chunk):
-    """Generate interactivity suggestion using GPT model"""
     generator = load_gpt_model()
     prompt = f"Given this content: {content_chunk}, suggest an appropriate interactive element such as a quiz, mind map, or timeline, and provide a short description of how it should work."
     
     try:
-        # Set max_new_tokens to limit the number of tokens generated, and remove max_length
         response = generator(prompt, max_new_tokens=50, num_return_sequences=1, truncation=True, pad_token_id=50256)
-        
-        # Check if a valid response is returned
         if response:
             return response[0]['generated_text']
         else:
@@ -91,13 +76,10 @@ def generate_interactivity(content_chunk):
     except Exception as e:
         return f"Error generating interactivity: {e}"
 
-############################################
-# Multi-Step Workflow
-############################################
+# Multi-step Workflow
 def main():
     st.set_page_config(page_title="Advanced Lesson Builder", layout="wide")
 
-    # Initialize session state
     if "page" not in st.session_state:
         st.session_state["page"] = 0
     if "textbook_text" not in st.session_state:
@@ -127,11 +109,8 @@ def main():
     else:
         st.error("Invalid page index!")
 
-############################################
-# Sidebar Navigation
-############################################
+# Sidebar Progress
 def show_sidebar_progress():
-    """Display the sidebar for navigation and progress tracking."""
     st.sidebar.title("Lesson Builder Steps")
     steps = ["Metadata", "Content Upload", "Analyze Content", "Storyboard", "Refine Storyboard", "Export"]
     for i, step in enumerate(steps):
@@ -142,14 +121,9 @@ def show_sidebar_progress():
         else:
             st.sidebar.write(f"⬜ {step} - Pending")
 
-############################################
 # Step 1: Metadata
-############################################
 def page_metadata():
-    """Step 1: Collect metadata."""
     st.title("Step 1: Metadata")
-    st.write("Enter metadata for the lesson.")
-
     metadata_inputs = {
         "Course Title": st.text_input("Course Title", st.session_state["metadata"].get("Course Title", "")),
         "Module Title": st.text_input("Module Title", st.session_state["metadata"].get("Module Title", "")),
@@ -165,26 +139,15 @@ def page_metadata():
         else:
             st.error("Please fill in all fields.")
 
-############################################
 # Step 2: Content Upload
-############################################
 def page_content():
-    """Step 2: Upload textbook and SME content."""
     st.title("Step 2: Content Upload")
-    st.write("Upload textbook and SME files or enter content manually.")
-
-    # Textbook content
-    st.subheader("Textbook Content")
     uploaded_textbook_files = st.file_uploader("Upload textbook files", type=["pdf", "docx", "png", "jpg", "jpeg"], accept_multiple_files=True)
     textbook_manual_text = st.text_area("Or enter textbook content manually", st.session_state.get("textbook_text", ""))
-
-    # SME content
-    st.subheader("SME Content")
     uploaded_sme_files = st.file_uploader("Upload SME files", type=["pdf", "docx", "png", "jpg", "jpeg"], accept_multiple_files=True)
     sme_manual_text = st.text_area("Or enter SME content manually", st.session_state.get("sme_text", ""))
 
     if st.button("Next"):
-        # Combine uploaded and manual content
         st.session_state["textbook_text"] = parse_multiple_files(uploaded_textbook_files) + "\n" + textbook_manual_text
         st.session_state["sme_text"] = parse_multiple_files(uploaded_sme_files) + "\n" + sme_manual_text
 
@@ -193,14 +156,10 @@ def page_content():
         else:
             st.error("Please upload or enter content.")
 
-############################################
 # Step 3: Analyze Content
-############################################
 def page_analyze():
-    """Step 3: Analyze content for alignment with lesson objectives."""
     st.title("Step 3: Analyze Content")
 
-    # Check if metadata and content exist
     if "metadata" not in st.session_state or not st.session_state["metadata"].get("Lesson Objective", "").strip():
         st.error("Lesson Objective is missing. Please go back to Step 1: Metadata.")
         return
@@ -209,7 +168,6 @@ def page_analyze():
         st.error("No content found. Please go back to Step 2: Content.")
         return
 
-    # Combine content
     combined_text = st.session_state["textbook_text"] + "\n" + st.session_state["sme_text"]
     st.text_area("Preview Combined Content", combined_text, height=300)
 
@@ -217,7 +175,6 @@ def page_analyze():
     objective = st.session_state["metadata"]["Lesson Objective"]
     objective_emb = embedding_model.encode(objective, convert_to_tensor=True)
 
-    # Analyze chunks
     paragraphs = combined_text.split("\n\n")
     data = []
     for i, para in enumerate(paragraphs):
@@ -235,19 +192,15 @@ def page_analyze():
     st.write("Alignment Results:")
     st.dataframe(df_analysis)
 
-    # Add a Next button to proceed to the next phase (Storyboard)
     if st.button("Next"):
         if not df_analysis.empty:
-            st.session_state["page"] = 3  # Move to the Storyboard phase
+            st.session_state["page"] = 3
             st.success("Proceeding to Step 4: Storyboard.")
         else:
             st.error("Please make sure the analysis is complete before moving to the next step.")
 
-############################################
-# Step 4: Storyboard Generation
-############################################
+# Step 4: Storyboard Creation
 def page_storyboard():
-    """Step 4: Create storyboard with AI-driven interactivity."""
     st.title("Step 4: Storyboard Creation with AI-Driven Interactivity")
 
     if "analysis_df" not in st.session_state or st.session_state["analysis_df"].empty:
@@ -256,38 +209,26 @@ def page_storyboard():
 
     st.session_state["screens_df"] = st.session_state["analysis_df"]
 
-    # Iterate through each screen and suggest interactive element
     for index, row in st.session_state["screens_df"].iterrows():
         st.write(f"### Screen {index + 1}: {row['Paragraph'][:50]}...")  # Display snippet of the content
 
-        # **AI decides interactivity based on content**
         interactivity_suggestion = generate_interactivity(row['Paragraph'])
         st.write(f"AI Suggested Interactivity: {interactivity_suggestion}")
 
-        # Optionally allow IDs to customize the generated interactivity
         st.session_state["screens_df"].at[index, "Interactive Element"] = interactivity_suggestion
 
-    # Save the refined storyboard with interactivities
     if st.button("Save Storyboard"):
         st.success("Storyboard with interactivities saved successfully!")
         st.write(st.session_state["screens_df"])
 
-############################################
 # Step 5: Refine Storyboard
-############################################
 def page_refine():
-    """Step 5: Refine storyboard."""
     st.title("Step 5: Refine Storyboard")
 
-    # Check if storyboard data is available
     if "screens_df" not in st.session_state or st.session_state["screens_df"].empty:
         st.error("No storyboard available to refine. Please complete Step 4: Storyboard first.")
         return
 
-    st.write("Refine the storyboard by editing screen content or adding activities.")
-
-    # Editable DataFrame for storyboard refinement
-    st.write("### Editable Storyboard:")
     edited_df = st.data_editor(
         st.session_state["screens_df"],
         num_rows="dynamic",
@@ -295,7 +236,6 @@ def page_refine():
         key="refine_editor"
     )
 
-    # Interactive Element Suggestions
     st.write("### Add/Modify Interactive Elements:")
     for index, row in edited_df.iterrows():
         st.write(f"#### Screen {index + 1}: {row['Paragraph'][:50]}...")  # Show snippet of content
@@ -307,23 +247,17 @@ def page_refine():
         )
         edited_df.at[index, "Interactive Element"] = interactivity_type
 
-    # Save refined storyboard back to session state
     if st.button("Save Refinements"):
         st.session_state["screens_df"] = edited_df
         st.success("Refinements saved successfully!")
 
-    # Debug: Display refined storyboard
     st.subheader("Refined Storyboard Preview")
     st.dataframe(st.session_state["screens_df"])
 
-############################################
 # Step 6: Export
-############################################
 def page_export():
-    """Step 6: Export storyboard."""
     st.title("Step 6: Export")
 
-    # Ensure the storyboard is available
     if st.session_state["screens_df"].empty:
         st.error("No storyboard available to export.")
         return
@@ -331,29 +265,19 @@ def page_export():
     if st.button("Export to Word"):
         export_to_word(st.session_state["screens_df"], st.session_state["metadata"])
 
-############################################
-# Export Logic
-############################################
 def export_to_word(screens_df, metadata):
-    """Export storyboard to Word."""
     doc = WordDocument()
     doc.add_heading(metadata["Lesson Title"], level=1)
-
-    # Iterate through the storyboard and add each screen's content
     for _, row in screens_df.iterrows():
         doc.add_heading(f"Screen {row['Chunk ID']}", level=2)
         doc.add_paragraph(row["Paragraph"])
         doc.add_paragraph(f"Estimated Duration: {row.get('Estimated Duration', 'Not Provided')} minutes")
         doc.add_paragraph(f"Interactive Element: {row.get('Interactive Element', 'None')}")
-
-    # Save the Word document in a buffer and offer it for download
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     st.download_button("Download Word Document", buffer, file_name="storyboard.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-############################################
-# Run the App
-############################################
+# Run the app
 if __name__ == "__main__":
     main()
