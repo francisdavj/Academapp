@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import PyPDF2
 from docx import Document
+from sentence_transformers import SentenceTransformer, util
 import pytesseract
 from PIL import Image
-from docx import Document as WordDocument
 import io
+import openpyxl  # For exporting to Excel
 
 ############################################
 # Helper Functions for File Parsing
@@ -56,6 +57,14 @@ def parse_multiple_files(uploaded_files):
     return combined_text
 
 ############################################
+# AI Model Setup
+############################################
+@st.cache_resource
+def load_embedding_model():
+    """Load the SentenceTransformer model."""
+    return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+############################################
 # Multi-Step Workflow
 ############################################
 def main():
@@ -81,8 +90,12 @@ def main():
     elif page == 1:
         page_content()
     elif page == 2:
-        page_storyboard()
+        page_analyze()
     elif page == 3:
+        page_storyboard()
+    elif page == 4:
+        page_refine()
+    elif page == 5:
         page_export()
     else:
         st.error("Invalid page index!")
@@ -93,7 +106,7 @@ def main():
 def show_sidebar_progress():
     """Display the sidebar for navigation and progress tracking."""
     st.sidebar.title("Lesson Builder Steps")
-    steps = ["Metadata", "Content Upload", "Storyboard", "Export"]
+    steps = ["Metadata", "Content Upload", "Analyze Content", "Storyboard", "Refine Storyboard", "Export"]
     for i, step in enumerate(steps):
         if i == st.session_state["page"]:
             st.sidebar.write(f"▶️ {step} - In Progress")
@@ -154,75 +167,158 @@ def page_content():
             st.error("Please upload or enter content.")
 
 ############################################
-# Step 3: Storyboard
+# Step 3: Analyze Content
 ############################################
-def page_storyboard():
-    """Step 3: Create storyboard."""
-    st.title("Step 3: Storyboard")
-    st.write("Generate storyboard based on uploaded content.")
+def page_analyze():
+    """Step 3: Analyze content for alignment with lesson objectives."""
+    st.title("Step 3: Analyze Content")
 
-    # Generate storyboard data
-    content = st.session_state["textbook_text"] + "\n" + st.session_state["sme_text"]
-    st.subheader("Raw Content")
-    st.text_area("Preview Raw Content", content, height=300)
-
-    if st.button("Generate Storyboard"):
-        if content.strip():
-            screens = create_storyboard(content, st.session_state["metadata"])
-            st.session_state["screens_df"] = pd.DataFrame(screens)
-            st.success("Storyboard generated!")
-        else:
-            st.error("No content available to generate the storyboard.")
-
-    # Display storyboard
-    if not st.session_state["screens_df"].empty:
-        st.subheader("Generated Storyboard")
-        st.dataframe(st.session_state["screens_df"])
-
-############################################
-# Storyboard Creation Logic
-############################################
-def create_storyboard(content, metadata):
-    """Create storyboard data from content."""
-    chunks = content.split("\n\n")  # Split into chunks by double newlines
-    screens = []
-    for i, chunk in enumerate(chunks):
-        if chunk.strip():
-            screens.append({
-                "Screen Title": f"Screen {i + 1}",
-                "Text": chunk.strip(),
-                "Estimated Duration": round(len(chunk.split()) / 140, 2),  # Assume 140 words per minute
-                "Interactive Element": "None"  # Placeholder
-            })
-    return screens
-
-############################################
-# Step 4: Export
-############################################
-def page_export():
-    """Step 4: Export storyboard."""
-    st.title("Step 4: Export")
-    if "screens_df" not in st.session_state or st.session_state["screens_df"].empty:
-        st.error("No storyboard available to export. Please complete Step 3: Storyboard first.")
+    # Check if metadata and content exist
+    if "metadata" not in st.session_state or not st.session_state["metadata"].get("Lesson Objective", "").strip():
+        st.error("Lesson Objective is missing. Please go back to Step 1: Metadata.")
         return
 
-    st.write("Export the generated storyboard.")
+    if not st.session_state.get("textbook_text") and not st.session_state.get("sme_text"):
+        st.error("No content found. Please go back to Step 2: Content.")
+        return
 
-    # Export to Word
-    if st.button("Export to Word"):
-        export_to_word(st.session_state["screens_df"], st.session_state["metadata"])
-        st.success("Word document exported!")
+    # Combine content
+    combined_text = st.session_state["textbook_text"] + "\n" + st.session_state["sme_text"]
+    st.text_area("Preview Combined Content", combined_text, height=300)
+
+    embedding_model = load_embedding_model()
+    objective = st.session_state["metadata"]["Lesson Objective"]
+    objective_emb = embedding_model.encode(objective, convert_to_tensor=True)
+
+    # Analyze chunks
+    paragraphs = combined_text.split("\n\n")
+    data = []
+    for i, para in enumerate(paragraphs):
+        if para.strip():
+            para_emb = embedding_model.encode(para, convert_to_tensor=True)
+            sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
+            data.append({
+                "Chunk ID": i + 1,
+                "Paragraph": para.strip(),
+                "Alignment Score": round(sim_score, 3)
+            })
+
+    df_analysis = pd.DataFrame(data)
+    st.session_state["analysis_df"] = df_analysis
+    st.write("Alignment Results:")
+    st.dataframe(df_analysis)
 
 ############################################
-# Export Logic
+# Step 4: Storyboard Creation with Interactive Elements
+############################################
+def page_storyboard():
+    """Step 4: Create storyboard with AI-generated interactive elements."""
+    st.title("Step 4: Storyboard")
+    
+    # Check if analysis results are available
+    if "analysis_df" not in st.session_state or st.session_state["analysis_df"].empty:
+        st.error("No analysis results available. Please complete Step 3: Analyze Content first.")
+        return
+
+    # Extract the analysis data into a structured format
+    analysis_df = st.session_state["analysis_df"]
+    
+    # Create structured storyboard with interactive elements
+    screens = []
+    for i, row in analysis_df.iterrows():
+        screen_title = f"Screen {i + 1}"  # Automatically generated screen titles
+        paragraph = row["Paragraph"]
+        alignment_score = row["Alignment Score"]
+        estimated_duration = round(len(paragraph.split()) / 140, 2)  # Assuming 140 words = 1 minute
+        
+        # AI-based decision for adding interactive elements based on content
+        if alignment_score > 0.8:  # For high alignment, suggest a quiz or reflection
+            interactive_element = "Quiz"  # Example: AI suggests a quiz
+        elif alignment_score > 0.5:  # For moderate alignment, suggest a reflection question
+            interactive_element = "Reflection Question"
+        else:  # For low alignment, suggest an activity or task
+            interactive_element = "Activity"
+
+        # Add each screen's data to the storyboard
+        screens.append({
+            "Screen Title": screen_title,
+            "Text": paragraph,
+            "Estimated Duration": estimated_duration,
+            "Interactive Element": interactive_element
+        })
+
+    # Convert list of screens to DataFrame
+    storyboard_df = pd.DataFrame(screens)
+
+    # Store the storyboard in session state
+    st.session_state["screens_df"] = storyboard_df
+    
+    # Display the structured storyboard with AI-generated interactive elements
+    st.subheader("Generated Storyboard with Interactive Elements")
+    st.dataframe(st.session_state["screens_df"])
+
+    # Add a button to proceed to the refinement phase
+    if st.button("Proceed to Refine"):
+        st.session_state["page"] = 4
+
+############################################
+# Step 5: Refine Storyboard
+############################################
+def page_refine():
+    """Step 5: Refine storyboard."""
+    st.title("Step 5: Refine Storyboard")
+
+    # Check if storyboard data is available
+    if "screens_df" not in st.session_state or st.session_state["screens_df"].empty:
+        st.error("No storyboard available to refine. Please complete Step 4: Storyboard first.")
+        return
+
+    st.write("Refine the storyboard by editing screen content or adding activities.")
+
+    # Editable DataFrame for storyboard refinement
+    st.write("### Editable Storyboard:")
+    edited_df = st.data_editor(
+        st.session_state["screens_df"],
+        num_rows="dynamic",
+        use_container_width=True,
+        key="refine_editor"
+    )
+
+    # Save refined storyboard back to session state
+    if st.button("Save Refinements"):
+        st.session_state["screens_df"] = edited_df
+        st.success("Refinements saved successfully!")
+
+    # Debug: Display refined storyboard
+    st.subheader("Refined Storyboard Preview")
+    st.dataframe(st.session_state["screens_df"])
+
+############################################
+# Step 6: Export to Word and Excel
+############################################
+def page_export():
+    """Step 6: Export storyboard."""
+    st.title("Step 6: Export")
+    if st.session_state["screens_df"].empty:
+        st.error("No storyboard available to export.")
+        return
+
+    if st.button("Export to Word"):
+        export_to_word(st.session_state["screens_df"], st.session_state["metadata"])
+        
+    if st.button("Export to Excel"):
+        export_to_excel(st.session_state["screens_df"], st.session_state["metadata"])
+
+############################################
+# Export to Word
 ############################################
 def export_to_word(screens_df, metadata):
     """Export storyboard to Word."""
     doc = WordDocument()
     doc.add_heading(metadata["Lesson Title"], level=1)
     for _, row in screens_df.iterrows():
-        doc.add_heading(row["Screen Title"], level=2)
-        doc.add_paragraph(row["Text"])
+        doc.add_heading(f"Screen {row['Chunk ID']}", level=2)
+        doc.add_paragraph(row["Paragraph"])
         doc.add_paragraph(f"Estimated Duration: {row['Estimated Duration']} minutes")
         doc.add_paragraph(f"Interactive Element: {row['Interactive Element']}")
     buffer = io.BytesIO()
@@ -231,7 +327,6 @@ def export_to_word(screens_df, metadata):
     st.download_button("Download Word Document", buffer, file_name="storyboard.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 ############################################
-# Run the App
+# Export to Excel
 ############################################
-if __name__ == "__main__":
-    main()
+def export_to_excel(screens_df,
