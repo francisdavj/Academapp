@@ -78,8 +78,16 @@ def generate_interactivity(content_chunk):
     """Generate interactivity suggestion using GPT model"""
     generator = load_gpt_model()
     prompt = f"Given this content: {content_chunk}, suggest an appropriate interactive element such as a quiz, mind map, or timeline, and provide a short description of how it should work."
-    response = generator(prompt, max_length=100, num_return_sequences=1)
-    return response[0]['generated_text']
+    
+    try:
+        response = generator(prompt, max_length=100, num_return_sequences=1)
+        # Check if a valid response is returned
+        if response:
+            return response[0]['generated_text']
+        else:
+            return "No suggestion generated."
+    except Exception as e:
+        return f"Error generating interactivity: {e}"
 
 ############################################
 # Multi-Step Workflow
