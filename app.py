@@ -7,8 +7,8 @@ from docx import Document
 from sentence_transformers import SentenceTransformer, util
 import pytesseract
 from PIL import Image
-import openai
 import json
+from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 
 ############################################
 # 1) MySQL Config and Logging Functions
@@ -70,55 +70,60 @@ def log_user_change_db(screen_index, old_row, new_row):
 ############################################
 # 2) Advanced AI Setup
 ############################################
-def load_embedding_model():
+@st.cache_resource
+def load_summarizer():
     """
-    Load embedding model for content alignment.
+    Load the summarization pipeline.
     """
-    return SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+    return summarizer
 
-embedding_model = load_embedding_model()
+@st.cache_resource
+def load_generator():
+    """
+    Load the text generation pipeline.
+    """
+    generator = pipeline("text-generation", model="gpt2", tokenizer="gpt2")
+    return generator
 
-def call_llm_for_summary(paragraph):
+def summarize_paragraph(paragraph, summarizer):
     """
-    Use OpenAI's GPT model to summarize a paragraph.
+    Summarize a paragraph using the local summarization model.
     """
-    openai.api_key = st.secrets["openai_api_key"]  # Store your API key securely
     try:
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=f"Summarize the following paragraph:\n\n{paragraph}",
-            max_tokens=150
-        )
-        summary = response.choices[0].text.strip()
+        summary = summarizer(paragraph, max_length=150, min_length=40, do_sample=False)[0]['summary_text']
         return summary
     except Exception as e:
-        st.error(f"LLM Summarization Error: {e}")
+        st.error(f"Summarization Error: {e}")
         return "Summary not available."
 
-def call_llm_for_generation(aligned_paragraphs, objective):
+def generate_lesson_screens(aligned_paragraphs, objective, generator):
     """
-    Generate lesson content based on aligned paragraphs and objectives.
+    Generate lesson screens based on aligned paragraphs and objectives.
     """
-    openai.api_key = st.secrets["openai_api_key"]  # Store your API key securely
     try:
-        combined_text = "\n".join(aligned_paragraphs)
+        # Concatenate aligned paragraphs
+        combined_text = "\n\n".join(aligned_paragraphs)
         prompt = (
             f"Create a structured lesson based on the following objective:\n\n"
             f"Objective: {objective}\n\n"
             f"Content:\n{combined_text}\n\n"
-            f"Generate lesson screens with titles, text, estimated durations, and placeholders for interactive elements like quizzes and reflections."
+            f"Generate lesson screens with titles, text, estimated durations, and placeholders for interactive elements like quizzes and reflections.\n\n"
+            f"Format the output as a JSON array where each item represents a screen with the following fields: 'Screen Title', 'Text', 'Estimated Duration', 'Interactive Element'."
         )
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=prompt,
-            max_tokens=1500,
-            temperature=0.7
-        )
-        lesson = response.choices[0].text.strip()
-        return lesson
+        # Generate text
+        generated_text = generator(prompt, max_length=2000, num_return_sequences=1)[0]['generated_text']
+        
+        # Attempt to extract JSON from the generated text
+        start_idx = generated_text.find('[')
+        end_idx = generated_text.rfind(']') + 1
+        json_str = generated_text[start_idx:end_idx]
+        
+        screens = json.loads(json_str)
+        return screens
     except Exception as e:
-        st.error(f"LLM Generation Error: {e}")
-        return "Generation failed."
+        st.error(f"Generation Error: {e}")
+        return []
 
 ############################################
 # 3) File Parsing
@@ -130,7 +135,7 @@ def parse_pdf(uploaded_pdf):
     text = ""
     try:
         reader = PyPDF2.PdfReader(uploaded_pdf)
-        for page in reader.pages:
+        for page_num, page in enumerate(reader.pages, start=1):
             extracted_text = page.extract_text()
             if extracted_text:
                 text += extracted_text + "\n"
@@ -140,9 +145,8 @@ def parse_pdf(uploaded_pdf):
                     xObject = page['/Resources']['/XObject'].get_object()
                     for obj in xObject:
                         if xObject[obj]['/Subtype'] == '/Image':
-                            size = (xObject[obj]['/Width'], xObject[obj]['/Height'])
-                            data = xObject[obj].get_data()
-                            img = Image.frombytes('RGB', size, data)
+                            data = xObject[obj]._data
+                            img = Image.open(io.BytesIO(data))
                             text += pytesseract.image_to_string(img) + "\n"
     except Exception as e:
         st.error(f"Error reading PDF: {e}")
@@ -182,7 +186,7 @@ def main():
     if "page" not in st.session_state:
         st.session_state["page"] = 0
     if "screens_df" not in st.session_state:
-        st.session_state["screens_df"] = pd.DataFrame(columns=["Screen Title", "Text", "Estimated Duration"])
+        st.session_state["screens_df"] = pd.DataFrame(columns=["Screen Title", "Text", "Estimated Duration", "Interactive Element"])
 
     show_sidebar_progress()
     page = st.session_state["page"]
@@ -288,25 +292,28 @@ def page_analyze():
         st.warning("No content found. Please go back to Step 2.")
         return
 
+    summarizer = load_summarizer()
+
     if st.button("Analyze Now"):
         paragraphs = [p for p in combined_text.split("\n") if p.strip()]
-        df_analysis = analyze_chunks_with_llm(paragraphs, objective)
+        df_analysis = analyze_chunks(paragraphs, objective, summarizer)
         st.session_state["analysis_df"] = df_analysis
 
     if "analysis_df" in st.session_state:
         st.subheader("Alignment Analysis")
         st.dataframe(st.session_state["analysis_df"])
 
-def analyze_chunks_with_llm(paragraphs, objective):
+def analyze_chunks(paragraphs, objective, summarizer):
     """
-    Analyze alignment of content to objective.
+    Analyze alignment of content to objective and summarize.
     """
     data = []
+    embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
     objective_emb = embedding_model.encode(objective, convert_to_tensor=True)
     for i, para in enumerate(paragraphs):
         para_emb = embedding_model.encode(para, convert_to_tensor=True)
         sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
-        summary = call_llm_for_summary(para)
+        summary = summarize_paragraph(para, summarizer)
         data.append({
             "Chunk ID": i + 1,
             "Paragraph": para,
@@ -327,21 +334,24 @@ def page_generate():
     analysis_df = st.session_state["analysis_df"]
     objective = st.session_state["metadata"]["Lesson Objective"]
 
+    generator = load_generator()
+
     if st.button("Generate Lesson Screens"):
         aligned_paragraphs = analysis_df[analysis_df["Alignment Score"] >= 0.7]["Paragraph"].tolist()
         if not aligned_paragraphs:
             st.error("No sufficiently aligned content found to generate lesson screens.")
             return
-        lesson_content = call_llm_for_generation(aligned_paragraphs, objective)
-        # Assume the LLM returns JSON formatted lesson screens
-        try:
-            screens = json.loads(lesson_content)
-            screens_df = pd.DataFrame(screens)
+        lesson_screens = generate_lesson_screens(aligned_paragraphs, objective, generator)
+        if lesson_screens:
+            screens_df = pd.DataFrame(lesson_screens)
+            # Ensure all necessary columns are present
+            for col in ["Screen Title", "Text", "Estimated Duration", "Interactive Element"]:
+                if col not in screens_df.columns:
+                    screens_df[col] = ""
             st.session_state["screens_df"] = screens_df
             st.success("Lesson screens generated successfully!")
-        except json.JSONDecodeError:
-            st.error("Failed to parse generated lesson content. Please check the LLM response format.")
-            st.text(lesson_content)
+        else:
+            st.error("Failed to generate lesson screens.")
 
     if "screens_df" in st.session_state and not st.session_state["screens_df"].empty:
         st.subheader("Generated Lesson Screens")
@@ -364,8 +374,8 @@ def page_refine():
         with st.form(key=f"screen_form_{index}"):
             title = st.text_input("Screen Title", value=row["Screen Title"], key=f"title_{index}")
             text = st.text_area("Text", value=row["Text"], key=f"text_{index}")
-            duration = st.number_input("Estimated Duration (minutes)", value=row["Estimated Duration"], min_value=1, key=f"duration_{index}")
-            interactive = st.selectbox("Add Interactive Element", ["None", "Quiz", "Reflection", "Video"], key=f"interactive_{index}")
+            duration = st.number_input("Estimated Duration (minutes)", value=row["Estimated Duration"] if pd.notnull(row["Estimated Duration"]) else 1, min_value=1, key=f"duration_{index}")
+            interactive = st.selectbox("Add Interactive Element", ["None", "Quiz", "Reflection", "Video"], index=["None", "Quiz", "Reflection", "Video"].index(row["Interactive Element"]) if row["Interactive Element"] in ["None", "Quiz", "Reflection", "Video"] else 0, key=f"interactive_{index}")
             submit = st.form_submit_button("Save Changes")
             if submit:
                 edited_screens.append({
