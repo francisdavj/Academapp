@@ -167,10 +167,14 @@ def page_storyboard():
     st.text_area("Preview Raw Content", content, height=300)
 
     if st.button("Generate Storyboard"):
-        screens = create_storyboard(content, st.session_state["metadata"])
-        st.session_state["screens_df"] = pd.DataFrame(screens)
-        st.success("Storyboard generated!")
+        if content.strip():
+            screens = create_storyboard(content, st.session_state["metadata"])
+            st.session_state["screens_df"] = pd.DataFrame(screens)
+            st.success("Storyboard generated!")
+        else:
+            st.error("No content available to generate the storyboard.")
 
+    # Display storyboard
     if not st.session_state["screens_df"].empty:
         st.subheader("Generated Storyboard")
         st.dataframe(st.session_state["screens_df"])
@@ -198,8 +202,8 @@ def create_storyboard(content, metadata):
 def page_export():
     """Step 4: Export storyboard."""
     st.title("Step 4: Export")
-    if st.session_state["screens_df"].empty:
-        st.error("No storyboard available to export.")
+    if "screens_df" not in st.session_state or st.session_state["screens_df"].empty:
+        st.error("No storyboard available to export. Please complete Step 3: Storyboard first.")
         return
 
     st.write("Export the generated storyboard.")
