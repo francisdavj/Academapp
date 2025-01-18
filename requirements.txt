@@ -1,10 +1,7 @@
 streamlit
 pandas
 mysql-connector-python
-PyPDF2
-python-docx
 sentence-transformers
 torch
-# If you do OCR on images, also:
-# pytesseract
-# Pillow
+python-docx
+PyPDF2
