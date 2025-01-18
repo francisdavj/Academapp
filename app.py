@@ -209,10 +209,10 @@ def page_analyze():
     st.dataframe(df_analysis)
 
 ############################################
-# Step 4: Storyboard Creation with Interactive Elements
+# Step 4: Storyboard Creation with AI-Generated Interactive Elements
 ############################################
 def page_storyboard():
-    """Step 4: Create storyboard with AI-generated interactive elements."""
+    """Step 4: Create structured storyboard with AI-driven interactive elements."""
     st.title("Step 4: Storyboard")
     
     # Check if analysis results are available
@@ -222,8 +222,8 @@ def page_storyboard():
 
     # Extract the analysis data into a structured format
     analysis_df = st.session_state["analysis_df"]
-    
-    # Create structured storyboard with interactive elements
+
+    # AI Logic for Content Structuring and Interactive Elements
     screens = []
     for i, row in analysis_df.iterrows():
         screen_title = f"Screen {i + 1}"  # Automatically generated screen titles
@@ -232,12 +232,15 @@ def page_storyboard():
         estimated_duration = round(len(paragraph.split()) / 140, 2)  # Assuming 140 words = 1 minute
         
         # AI-based decision for adding interactive elements based on content
-        if alignment_score > 0.8:  # For high alignment, suggest a quiz or reflection
-            interactive_element = "Quiz"  # Example: AI suggests a quiz
-        elif alignment_score > 0.5:  # For moderate alignment, suggest a reflection question
-            interactive_element = "Reflection Question"
-        else:  # For low alignment, suggest an activity or task
-            interactive_element = "Activity"
+        interactive_element = ""
+        
+        # Example: Advanced logic for inserting elements based on content (simulate AI behavior)
+        if alignment_score > 0.85:
+            interactive_element = "Quiz"  # High alignment suggests a quiz
+        elif alignment_score > 0.6:
+            interactive_element = "Reflection Question"  # Medium alignment suggests reflection
+        else:
+            interactive_element = "Activity"  # Low alignment suggests an activity to reinforce learning
 
         # Add each screen's data to the storyboard
         screens.append({
@@ -329,4 +332,19 @@ def export_to_word(screens_df, metadata):
 ############################################
 # Export to Excel
 ############################################
-def export_to_excel(screens_df,
+def export_to_excel(screens_df, metadata):
+    """Export storyboard and metadata to Excel."""
+    excel_writer = pd.ExcelWriter(io.BytesIO(), engine='openpyxl')
+    
+    # Metadata sheet
+    metadata_df = pd.DataFrame([metadata])
+    metadata_df.to_excel(excel_writer, sheet_name='Metadata', index=False)
+    
+    # Storyboard sheet
+    screens_df.to_excel(excel_writer, sheet_name='Storyboard', index=False)
+    
+    excel_writer.save()
+    buffer = excel_writer.book
+    buffer.seek(0)
+    
+    st.download_button("Download Excel", buffer, file_name="storyboard.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
