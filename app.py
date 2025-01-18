@@ -1,6 +1,4 @@
 import streamlit as st
-import mysql.connector
-import datetime
 import pandas as pd
 import PyPDF2
 from docx import Document
@@ -8,74 +6,19 @@ from sentence_transformers import SentenceTransformer, util
 import pytesseract
 from PIL import Image
 import json
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import pipeline
+import io
 
 ############################################
-# 1) MySQL Config and Logging Functions
-############################################
-def get_db_connection():
-    """
-    Connect to MySQL database.
-    """
-    try:
-        conn = mysql.connector.connect(
-            host="127.0.0.1",
-            user="u628260032_francisdavid",
-            password="Chennai@202475",
-            database="u628260032_academapp",
-            port=3306
-        )
-        return conn
-    except Exception as e:
-        st.error(f"Could not connect to MySQL: {e}")
-        return None
-
-def log_usage_to_db(log_entry):
-    """
-    Log changes to the database.
-    """
-    conn = get_db_connection()
-    if not conn:
-        return
-    try:
-        cursor = conn.cursor()
-        changes_str = json.dumps(log_entry.get("changes", {}))
-        log_time = datetime.datetime.now()
-        sql = """
-        INSERT INTO usage_logs (log_time, screen_index, changes)
-        VALUES (%s, %s, %s)
-        """
-        cursor.execute(sql, (log_time, log_entry.get("screen_index"), changes_str))
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        st.error(f"Error inserting usage log: {e}")
-
-def log_user_change_db(screen_index, old_row, new_row):
-    """
-    Track changes in the user edits and log them.
-    """
-    changes = {}
-    for col in ["Screen Title", "Text", "Estimated Duration"]:
-        old_val = old_row.get(col, "")
-        new_val = new_row.get(col, "")
-        if old_val != new_val:
-            changes[col] = {"old": old_val, "new": new_val}
-
-    if changes:
-        log_entry = {"screen_index": screen_index, "changes": changes}
-        log_usage_to_db(log_entry)
-
-############################################
-# 2) Advanced AI Setup
+# 1) Advanced AI Setup
 ############################################
 @st.cache_resource
 def load_summarizer():
     """
     Load the summarization pipeline.
     """
-    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+    summarizer_model = st.secrets["models"]["summarizer_model"]  # e.g., "facebook/bart-large-cnn"
+    summarizer = pipeline("summarization", model=summarizer_model)
     return summarizer
 
 @st.cache_resource
@@ -83,7 +26,8 @@ def load_generator():
     """
     Load the text generation pipeline.
     """
-    generator = pipeline("text-generation", model="gpt2", tokenizer="gpt2")
+    generator_model = st.secrets["models"]["generator_model"]  # e.g., "gpt2"
+    generator = pipeline("text-generation", model=generator_model, tokenizer=generator_model)
     return generator
 
 def summarize_paragraph(paragraph, summarizer):
@@ -102,23 +46,17 @@ def generate_lesson_screens(aligned_paragraphs, objective, generator):
     Generate lesson screens based on aligned paragraphs and objectives.
     """
     try:
-        # Concatenate aligned paragraphs
         combined_text = "\n\n".join(aligned_paragraphs)
         prompt = (
             f"Create a structured lesson based on the following objective:\n\n"
             f"Objective: {objective}\n\n"
             f"Content:\n{combined_text}\n\n"
-            f"Generate lesson screens with titles, text, estimated durations, and placeholders for interactive elements like quizzes and reflections.\n\n"
-            f"Format the output as a JSON array where each item represents a screen with the following fields: 'Screen Title', 'Text', 'Estimated Duration', 'Interactive Element'."
+            f"Generate lesson screens with titles, text, estimated durations, and placeholders for interactive elements."
         )
-        # Generate text
         generated_text = generator(prompt, max_length=2000, num_return_sequences=1)[0]['generated_text']
-        
-        # Attempt to extract JSON from the generated text
         start_idx = generated_text.find('[')
         end_idx = generated_text.rfind(']') + 1
         json_str = generated_text[start_idx:end_idx]
-        
         screens = json.loads(json_str)
         return screens
     except Exception as e:
@@ -126,7 +64,7 @@ def generate_lesson_screens(aligned_paragraphs, objective, generator):
         return []
 
 ############################################
-# 3) File Parsing
+# 2) File Parsing
 ############################################
 def parse_pdf(uploaded_pdf):
     """
@@ -135,19 +73,9 @@ def parse_pdf(uploaded_pdf):
     text = ""
     try:
         reader = PyPDF2.PdfReader(uploaded_pdf)
-        for page_num, page in enumerate(reader.pages, start=1):
+        for page in reader.pages:
             extracted_text = page.extract_text()
-            if extracted_text:
-                text += extracted_text + "\n"
-            else:
-                # Handle scanned images in PDF using OCR
-                if '/XObject' in page['/Resources']:
-                    xObject = page['/Resources']['/XObject'].get_object()
-                    for obj in xObject:
-                        if xObject[obj]['/Subtype'] == '/Image':
-                            data = xObject[obj]._data
-                            img = Image.open(io.BytesIO(data))
-                            text += pytesseract.image_to_string(img) + "\n"
+            text += extracted_text if extracted_text else ""
     except Exception as e:
         st.error(f"Error reading PDF: {e}")
     return text
@@ -172,13 +100,26 @@ def parse_image(uploaded_image):
     text = ""
     try:
         image = Image.open(uploaded_image)
-        text = pytesseract.image_to_string(image) + "\n"
+        text = pytesseract.image_to_string(image)
     except Exception as e:
         st.error(f"Error reading image: {e}")
     return text
 
+def parse_file(uploaded_file):
+    """
+    Helper function to parse uploaded files.
+    """
+    if uploaded_file:
+        if uploaded_file.name.endswith(".pdf"):
+            return parse_pdf(uploaded_file)
+        elif uploaded_file.name.endswith(".docx"):
+            return parse_docx(uploaded_file)
+        elif uploaded_file.name.endswith((".png", ".jpg", ".jpeg")):
+            return parse_image(uploaded_file)
+    return ""
+
 ############################################
-# 4) Multi-Step Flow
+# 3) Multi-Step Flow
 ############################################
 def main():
     st.set_page_config(page_title="Advanced Lesson Builder", layout="wide")
@@ -239,7 +180,6 @@ def page_metadata():
     }
 
     if st.button("Next"):
-        # Basic validation
         if not all(metadata_inputs.values()):
             st.error("Please fill in all metadata fields.")
             return
@@ -248,37 +188,33 @@ def page_metadata():
 
 def page_content():
     """
-    Step 2: Upload and parse content files.
+    Step 2: Upload and parse content files or enter text directly.
     """
     st.title("Lesson Builder: Step 2 - Content")
-    st.write("Upload textbook and SME files or paste text.")
+    st.write("Upload textbook and SME files or enter text directly.")
 
-    # Textbook content
-    textbook_parsed = handle_file_upload("Textbook Content", "textbook_file")
-    sme_parsed = handle_file_upload("SME Content", "sme_file")
+    # Textbook content upload and text input
+    st.subheader("Textbook Content")
+    uploaded_textbook = st.file_uploader("Upload a file for Textbook Content", type=["pdf", "docx", "png", "jpg", "jpeg"], key="textbook_file")
+    textbook_manual_text = st.text_area("Or enter Textbook Content manually", key="textbook_manual_input")
 
+    # SME content upload and text input
+    st.subheader("SME Content")
+    uploaded_sme = st.file_uploader("Upload a file for SME Content", type=["pdf", "docx", "png", "jpg", "jpeg"], key="sme_file")
+    sme_manual_text = st.text_area("Or enter SME Content manually", key="sme_manual_input")
+
+    # Handle file uploads
+    textbook_parsed = parse_file(uploaded_textbook) if uploaded_textbook else textbook_manual_text
+    sme_parsed = parse_file(uploaded_sme) if uploaded_sme else sme_manual_text
+
+    # Button to proceed to the next step
     if st.button("Next"):
-        if not textbook_parsed and not sme_parsed:
-            st.error("Please upload at least one content file.")
-            return
-        st.session_state["textbook_text"] = textbook_parsed
-        st.session_state["sme_text"] = sme_parsed
-        st.session_state["page"] = 2
-
-def handle_file_upload(section, key):
-    """
-    Helper function to handle file uploads and parsing.
-    """
-    st.subheader(section)
-    uploaded_file = st.file_uploader(f"Upload a file for {section}", type=["pdf", "docx", "png", "jpg", "jpeg"], key=key)
-    if uploaded_file:
-        if uploaded_file.name.endswith(".pdf"):
-            return parse_pdf(uploaded_file)
-        elif uploaded_file.name.endswith(".docx"):
-            return parse_docx(uploaded_file)
-        elif uploaded_file.name.endswith((".png", ".jpg", ".jpeg")):
-            return parse_image(uploaded_file)
-    return ""
+        if not (textbook_parsed or sme_parsed):
+            st.error("Please upload at least one content file or enter text manually.")
+        else:
+            st.session_state["textbook_text"] = textbook_parsed
+            st.session_state["sme_text"] = sme_parsed
+            st.session_state["page"] = 2
 
 def page_analyze():
     """
@@ -344,7 +280,6 @@ def page_generate():
         lesson_screens = generate_lesson_screens(aligned_paragraphs, objective, generator)
         if lesson_screens:
             screens_df = pd.DataFrame(lesson_screens)
-            # Ensure all necessary columns are present
             for col in ["Screen Title", "Text", "Estimated Duration", "Interactive Element"]:
                 if col not in screens_df.columns:
                     screens_df[col] = ""
@@ -375,7 +310,12 @@ def page_refine():
             title = st.text_input("Screen Title", value=row["Screen Title"], key=f"title_{index}")
             text = st.text_area("Text", value=row["Text"], key=f"text_{index}")
             duration = st.number_input("Estimated Duration (minutes)", value=row["Estimated Duration"] if pd.notnull(row["Estimated Duration"]) else 1, min_value=1, key=f"duration_{index}")
-            interactive = st.selectbox("Add Interactive Element", ["None", "Quiz", "Reflection", "Video"], index=["None", "Quiz", "Reflection", "Video"].index(row["Interactive Element"]) if row["Interactive Element"] in ["None", "Quiz", "Reflection", "Video"] else 0, key=f"interactive_{index}")
+            interactive = st.selectbox(
+                "Add Interactive Element",
+                ["None", "Quiz", "Reflection", "Video"],
+                index=["None", "Quiz", "Reflection", "Video"].index(row["Interactive Element"]) if row["Interactive Element"] in ["None", "Quiz", "Reflection", "Video"] else 0,
+                key=f"interactive_{index}"
+            )
             submit = st.form_submit_button("Save Changes")
             if submit:
                 edited_screens.append({
@@ -384,14 +324,7 @@ def page_refine():
                     "Estimated Duration": duration,
                     "Interactive Element": interactive
                 })
-                # Log changes
-                old_row = row.to_dict()
-                new_row = {
-                    "Screen Title": title,
-                    "Text": text,
-                    "Estimated Duration": duration
-                }
-                log_user_change_db(index + 1, old_row, new_row)
+                st.success(f"Changes saved for Screen {index + 1}!")
 
     if edited_screens:
         st.session_state["screens_df"] = pd.DataFrame(edited_screens)
