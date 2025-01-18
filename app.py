@@ -2,17 +2,22 @@ import streamlit as st
 import pandas as pd
 
 def main():
+    """
+    Entry point for the multi-step lesson builder.
+    We've expanded the idea of 'AI Build -> Refine' with placeholders.
+    """
+    # Basic Streamlit page setup
     st.set_page_config(page_title="Lesson Builder", layout="wide")
 
     # Keep track of which "page" or step the user is on
     if "page" not in st.session_state:
         st.session_state["page"] = 0
-    
+
     # If we don’t already have a DataFrame for screens, initialize an empty one
     if "screens_df" not in st.session_state:
         st.session_state["screens_df"] = pd.DataFrame()
 
-    # Render the current page
+    # Choose which page to display based on the step
     if st.session_state["page"] == 0:
         page_metadata()
     elif st.session_state["page"] == 1:
@@ -24,10 +29,9 @@ def main():
     else:
         st.write("Invalid page index!")  
 
-
 def page_metadata():
     """
-    Page 0: Collect high-level lesson metadata.
+    Page 0: Collect high-level lesson metadata (Course, Module, etc.).
     """
     st.title("Lesson Builder: Step 1 - Metadata")
     st.write("Enter your high-level metadata for the lesson.")
@@ -53,57 +57,63 @@ def page_metadata():
         # Move to next page
         st.session_state["page"] = 1
 
-
 def page_content():
     """
     Page 1: Collect textbook and SME content.
     """
     st.title("Lesson Builder: Step 2 - Content Collection")
-    st.write("Paste or type your textbook and SME content below:")
+    st.write("Paste or type your textbook and SME content below. We will not add new material—only refine or reorganize existing text where needed.")
 
     # Collect text from user
     textbook_text = st.text_area("Textbook Content", height=200)
     sme_text = st.text_area("SME Content", height=200)
 
-    # Optional toggle for concept teaching video
+    # Optional toggle for a concept teaching video
     include_video = st.checkbox("Include Concept Teaching Video?")
 
     if st.button("Next"):
+        # Store content in session_state
         st.session_state["textbook_text"] = textbook_text
         st.session_state["sme_text"] = sme_text
         st.session_state["include_video"] = include_video
-        st.session_state["page"] = 2
 
+        # Move to the AI (or code logic) build step
+        st.session_state["page"] = 2
 
 def page_generate():
     """
-    Page 2: Generate an outline of lesson screens based on the user's input.
+    Page 2: Automatically build the lesson screens from the inputs (AI Build).
+    The ID can see a preview and then refine in the next step.
     """
-    st.title("Lesson Builder: Step 3 - Generate Lesson Screens")
+    st.title("Lesson Builder: Step 3 - AI/Code Generated Lesson Screens")
 
-    # Retrieve stored data
+    # Get data from session_state
     metadata = st.session_state.get("metadata", {})
     textbook_text = st.session_state.get("textbook_text", "")
     sme_text = st.session_state.get("sme_text", "")
     include_video = st.session_state.get("include_video", False)
 
+    st.write("When you click 'Generate Screens,' the system (or an AI) will create an initial outline of ~8-10 screens.")
+    st.write("No new content will be invented—only the text you provided will be used or rearranged if necessary.")
+
     if st.button("Generate Screens"):
-        # Build the lesson screens DataFrame
+        # In a real scenario, you might call an AI API or run code that organizes your content.
+        # Here, we use a local function that sets up a standard 8-10 screen structure.
         df = generate_screens(metadata, textbook_text, sme_text, include_video)
         st.session_state["screens_df"] = df
         st.success("Lesson screens generated! Scroll down to preview.")
 
+    # Show the generated screens if available
     if "screens_df" in st.session_state and not st.session_state["screens_df"].empty:
         st.write("Preview of generated lesson screens:")
         st.dataframe(st.session_state["screens_df"])
 
-        if st.button("Next: Refine"):
+        if st.button("Next: Refine Screens"):
             st.session_state["page"] = 3
-
 
 def page_refine():
     """
-    Page 3: Let the user refine/edit the generated screens.
+    Page 3: The ID refines the auto-generated screens—manually editing or removing any extra text.
     """
     st.title("Lesson Builder: Step 4 - Refine Screens")
 
@@ -112,7 +122,8 @@ def page_refine():
         st.write("No screens to refine. Go back and generate first.")
         return
 
-    # Display each row in an expander for editing
+    st.write("Below are the screens we generated. You can edit their titles, text, and duration. Only use the content from your textbook/SME if you need to fill in details. No new content from AI is allowed.")
+
     updated_rows = []
     for i, row in df.iterrows():
         with st.expander(f"Screen {row['Screen Number']}: {row['Screen Title']}"):
@@ -120,7 +131,7 @@ def page_refine():
             new_title = st.text_input("Screen Title", row["Screen Title"], key=f"title_{i}")
             new_text = st.text_area("Text", row["Text"], key=f"text_{i}")
             new_duration = st.text_input("Estimated Duration", row["Estimated Duration"], key=f"duration_{i}")
-            
+
             updated_rows.append((i, new_title, new_text, new_duration))
 
     if st.button("Apply Refinements"):
@@ -130,140 +141,138 @@ def page_refine():
             df.at[i, "Estimated Duration"] = d
 
         st.session_state["screens_df"] = df
-        st.success("Refinements applied. Check below for updated screens.")
+        st.success("Refinements applied! The updated screens are below.")
         st.dataframe(df)
 
     if st.button("Finish"):
         st.write("Lesson creation workflow complete!")
         st.balloons()
 
-
 def generate_screens(metadata, textbook_text, sme_text, include_video):
     """
-    Example logic that generates an 8-10 screen structure for a ~15 minute lesson
-    based on the guidelines we discussed. You can customize to your needs.
+    Basic function that simulates the AI building out ~8-10 screens for a 15-minute lesson.
+    We only reorganize the user-provided text and insert placeholders for additional screens.
     """
-    # Basic approach to building a list of screen dictionaries
     screens = []
     total_duration = 0
 
-    # 1) Introduction
+    # Screen 1: Introduction
     screens.append({
         "Screen Number": 1,
         "Screen Title": "Introduction / Hook",
         "Screen Type": "Text and Graphic",
         "Template": "Canvas",
         "Estimated Duration": "2 minutes",
-        "Text": f"Welcome to {metadata.get('Lesson Type','')}! "
-                f"This lesson covers: {metadata.get('Lesson Objective','')}\n\n"
-                "Hook scenario or question goes here.",
-        "Content Source": "AI Generated"
+        "Text": (f"Welcome to {metadata.get('Lesson Type','a lesson')}! "
+                 f"This lesson covers: {metadata.get('Lesson Objective','')}\n\n"
+                 "Hook or scenario from your content might go here."),
+        "Content Source": "AI/Code Generated"
     })
     total_duration += 2
 
-    # 2) Key Concept 1 from textbook
+    # Screen 2: Key Concept 1 (using textbook_text)
     screens.append({
         "Screen Number": 2,
         "Screen Title": "Key Concept 1",
         "Screen Type": "Text and Graphic",
         "Template": "Accordion",
         "Estimated Duration": "2 minutes",
-        "Text": textbook_text or "No textbook content provided yet.",
+        "Text": textbook_text or "No textbook content was provided.",
         "Content Source": "Textbook"
     })
     total_duration += 2
 
-    # 3) Key Concept 2 (some filler text)
+    # Screen 3: Key Concept 2 (we can do minimal additions but not new content)
     screens.append({
         "Screen Number": 3,
         "Screen Title": "Key Concept 2",
         "Screen Type": "Text and Graphic",
         "Template": "Canvas",
         "Estimated Duration": "2 minutes",
-        "Text": "Additional details or second concept elaboration.",
-        "Content Source": "AI Generated"
+        "Text": sme_text or "No SME content was provided.",
+        "Content Source": "SME"
     })
     total_duration += 2
 
-    # 4) 1st Practice Interactive
+    # Screen 4: Practice Interactive #1
     screens.append({
         "Screen Number": 4,
         "Screen Title": "Check Your Understanding #1",
         "Screen Type": "Practice Interactive",
         "Template": "Quiz",
         "Estimated Duration": "1 minute",
-        "Text": "It’s time to apply what you learned with a short scenario or MCQ.",
-        "Content Source": "AI Generated"
+        "Text": "A short scenario or question derived from your content. (No new info)",
+        "Content Source": "AI Placeholder"
     })
     total_duration += 1
 
-    # 5) Concept Animation
+    # Screen 5: Concept Animation
     screens.append({
         "Screen Number": 5,
         "Screen Title": "Concept Animation",
         "Screen Type": "Animation Placeholder",
         "Template": "Animation",
         "Estimated Duration": "2 minutes",
-        "Text": "Introduce the animation concept, how to play it, etc.",
-        "Content Source": "AI Generated"
+        "Text": "You can link a short animation here if you have one from the SME or a library.",
+        "Content Source": "Placeholder"
     })
     total_duration += 2
 
-    # (Optional) Concept Video
+    # (Optional) Concept Teaching Video
     if include_video:
         screens.append({
             "Screen Number": 6,
             "Screen Title": "Concept Teaching Video",
             "Screen Type": "Video Placeholder",
-            "Template": "Video Player",
+            "Template": "Video",
             "Estimated Duration": "2 minutes",
-            "Text": "Introduction to the video content, instructions to watch, etc.",
-            "Content Source": "AI Generated"
+            "Text": "If the ID decided to have a video, place it here. No new content from AI.",
+            "Content Source": "Placeholder"
         })
         total_duration += 2
 
-    # Next screens, advanced organizers, 2nd practice interactive, reflection...
-    # We'll add a few more placeholders:
+    # Let's add more placeholders for advanced organizers & second quiz
 
-    # Advanced Organizer #1
+    next_screen_number = 6 if not include_video else 7
     screens.append({
-        "Screen Number": len(screens)+1,
+        "Screen Number": next_screen_number,
         "Screen Title": "Advanced Organizer #1",
         "Screen Type": "Text and Graphic",
         "Template": "Complex Illustration",
         "Estimated Duration": "1 minute",
-        "Text": "A diagram or infographic summarizing key concepts.",
-        "Content Source": "AI Generated"
+        "Text": "A complex infographic or chart summarizing the lesson so far.",
+        "Content Source": "Placeholder"
     })
     total_duration += 1
 
-    # 2nd Practice Interactive
+    next_screen_number += 1
     screens.append({
-        "Screen Number": len(screens)+1,
+        "Screen Number": next_screen_number,
         "Screen Title": "Check Your Understanding #2",
         "Screen Type": "Practice Interactive",
         "Template": "Quiz",
         "Estimated Duration": "1 minute",
-        "Text": "Another short interactive to reinforce learning.",
-        "Content Source": "AI Generated"
+        "Text": "A second short practice or scenario-based question.",
+        "Content Source": "AI Placeholder"
     })
     total_duration += 1
 
-    # Reflection
+    next_screen_number += 1
     screens.append({
-        "Screen Number": len(screens)+1,
+        "Screen Number": next_screen_number,
         "Screen Title": "Reflection / Think About This",
         "Screen Type": "Text and Graphic",
         "Template": "Reflection",
         "Estimated Duration": "1 minute",
-        "Text": "Help the learner apply these concepts to real-world scenarios.",
-        "Content Source": "AI Generated"
+        "Text": "End the lesson with a reflection screen to help learners synthesize the concepts.",
+        "Content Source": "Placeholder"
     })
     total_duration += 1
 
     # Summarize total
     st.write(f"Approximate total lesson duration: ~{total_duration} minutes")
 
+    # Return the final DataFrame
     return pd.DataFrame(screens)
 
 
