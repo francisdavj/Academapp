@@ -110,7 +110,7 @@ def main():
     elif page == 1:
         page_content()
     elif page == 2:
-        page_analyze()
+        asyncio.run(page_analyze())  # Async call for analyzing content
     elif page == 3:
         page_storyboard()
     elif page == 4:
@@ -175,7 +175,7 @@ def page_content():
             st.error("Please upload or enter content.")
 
 ############################################
-# Step 3: Analyze Content
+# Step 3: Analyze Content (Async)
 ############################################
 async def process_paragraph(para, objective_emb, embedding_model):
     para_emb = embedding_model.encode(para, convert_to_tensor=True)
@@ -221,6 +221,7 @@ async def page_analyze():
         else:
             st.error("Please make sure the analysis is complete before moving to the next step.")
 
+# Continue with Steps 4, 5, and 6...
 ############################################
 # Step 4: Storyboard Creation
 ############################################
@@ -233,14 +234,18 @@ def page_storyboard():
 
     st.session_state["screens_df"] = st.session_state["analysis_df"]
 
+    # Iterate through each screen and suggest interactive element
     for index, row in st.session_state["screens_df"].iterrows():
         st.write(f"### Screen {index + 1}: {row['Paragraph'][:50]}...")  # Display snippet of the content
 
+        # **AI decides interactivity based on content**
         interactivity_suggestion = generate_interactivity(row['Paragraph'])
         st.write(f"AI Suggested Interactivity: {interactivity_suggestion}")
 
+        # Optionally allow IDs to customize the generated interactivity
         st.session_state["screens_df"].at[index, "Interactive Element"] = interactivity_suggestion
 
+    # Save the refined storyboard with interactivities
     if st.button("Save Storyboard"):
         st.success("Storyboard with interactivities saved successfully!")
         st.write(st.session_state["screens_df"])
@@ -251,6 +256,7 @@ def page_storyboard():
 def page_refine():
     st.title("Step 5: Refine Storyboard")
 
+    # Check if storyboard data is available
     if "screens_df" not in st.session_state or st.session_state["screens_df"].empty:
         st.error("No storyboard available to refine. Please complete Step 4: Storyboard first.")
         return
@@ -303,6 +309,7 @@ def export_to_word(screens_df, metadata):
         doc.add_paragraph(f"Estimated Duration: {row.get('Estimated Duration', 'Not Provided')} minutes")
         doc.add_paragraph(f"Interactive Element: {row.get('Interactive Element', 'None')}")
     
+    # Save the file to memory and allow download
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
