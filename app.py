@@ -2,30 +2,28 @@ import streamlit as st
 import pandas as pd
 import PyPDF2
 from docx import Document
-from PIL import Image
 import pytesseract
-from sentence_transformers import SentenceTransformer, util
-
+from PIL import Image
+from docx import Document as WordDocument
+import io
 
 ############################################
-# Utility Functions
+# Helper Functions for File Parsing
 ############################################
-
-# Parse PDF files
 def parse_pdf(uploaded_pdf):
+    """Extract text from PDF."""
     text = ""
     try:
         reader = PyPDF2.PdfReader(uploaded_pdf)
         for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
+            extracted_text = page.extract_text()
+            text += extracted_text if extracted_text else ""
     except Exception as e:
         st.error(f"Error reading PDF: {e}")
     return text
 
-# Parse DOCX files
 def parse_docx(uploaded_docx):
+    """Extract text from DOCX files."""
     text = ""
     try:
         doc = Document(uploaded_docx)
@@ -35,200 +33,201 @@ def parse_docx(uploaded_docx):
         st.error(f"Error reading DOCX: {e}")
     return text
 
-# Parse images using OCR
-def parse_image_ocr(uploaded_image):
+def parse_image(uploaded_image):
+    """Extract text from images using OCR."""
     text = ""
     try:
         image = Image.open(uploaded_image)
         text = pytesseract.image_to_string(image)
     except Exception as e:
-        st.error(f"Error processing image: {e}")
+        st.error(f"Error reading image: {e}")
     return text
 
-# Load embedding model
-def load_embedding_model():
-    return SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-
-embedding_model = load_embedding_model()
-
-# Analyze chunks for alignment and summaries
-def analyze_chunks_with_llm(paragraphs, objective):
-    data = []
-    objective_emb = embedding_model.encode(objective, convert_to_tensor=True)
-    for i, para in enumerate(paragraphs):
-        para_emb = embedding_model.encode(para, convert_to_tensor=True)
-        sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
-        word_count = len(para.split())
-        data.append({
-            "Chunk ID": i + 1,
-            "Paragraph": para,
-            "Alignment Score": round(sim_score, 3),
-            "Word Count": word_count
-        })
-    return pd.DataFrame(data)
+def parse_multiple_files(uploaded_files):
+    """Parse multiple uploaded files and combine their content."""
+    combined_text = ""
+    for file in uploaded_files:
+        if file.name.endswith(".pdf"):
+            combined_text += parse_pdf(file) + "\n"
+        elif file.name.endswith(".docx"):
+            combined_text += parse_docx(file) + "\n"
+        elif file.name.endswith((".png", ".jpg", ".jpeg")):
+            combined_text += parse_image(file) + "\n"
+    return combined_text
 
 ############################################
-# Streamlit App Functions
+# Multi-Step Workflow
 ############################################
-
-# Sidebar progress
-def show_sidebar_progress():
-    st.sidebar.title("Lesson Steps Progress")
-    steps = ["Metadata", "Content", "Analyze", "Generate", "Refine"]
-    current_page = st.session_state["page"]
-    for i, step_name in enumerate(steps):
-        if i < current_page:
-            st.sidebar.write(f"✅ {step_name} - Done")
-        elif i == current_page:
-            st.sidebar.write(f"▶️ {step_name} - In Progress")
-        else:
-            st.sidebar.write(f"⬜ {step_name} - Pending")
-
-# Step 1: Metadata
-def page_metadata():
-    st.title("Lesson Builder: Step 1 - Metadata")
-    course_title = st.text_input("Course # and Title", st.session_state.get("course_title", ""))
-    module_title = st.text_input("Module # and Title", st.session_state.get("module_title", ""))
-    unit_title = st.text_input("Unit # and Title", st.session_state.get("unit_title", ""))
-    lesson_title = st.text_input("Lesson # and Title", st.session_state.get("lesson_title", ""))
-    lesson_objective = st.text_input("Lesson Objective", st.session_state.get("lesson_objective", ""))
-    lesson_type = st.selectbox("Lesson Type", ["Core Learning Lesson", "Practice Lesson", "Other"], index=0)
-
-    if st.button("Next"):
-        st.session_state["course_title"] = course_title
-        st.session_state["module_title"] = module_title
-        st.session_state["unit_title"] = unit_title
-        st.session_state["lesson_title"] = lesson_title
-        st.session_state["lesson_objective"] = lesson_objective
-        st.session_state["lesson_type"] = lesson_type
-        st.session_state["page"] = 1
-
-# Step 2: Content Upload
-def page_content():
-    st.title("Lesson Builder: Step 2 - Content")
-    st.write("Upload multiple files (PDF/DOCX/image) or manually provide text for textbook and SME content.")
-    
-    col1, col2 = st.columns(2)
-
-    # Textbook Content
-    with col1:
-        st.subheader("Textbook Content")
-        textbook_files = st.file_uploader(
-            "Upload textbook files (PDF, DOCX, images)",
-            type=["pdf", "docx", "png", "jpg", "jpeg"],
-            accept_multiple_files=True,
-            key="textbook_files"
-        )
-        tb_text_fallback = st.text_area("Or paste textbook text below (mandatory)", 
-                                        st.session_state.get("textbook_text", ""), 
-                                        height=150)
-
-        textbook_parsed = ""
-        for file in textbook_files:
-            fname = file.name.lower()
-            if fname.endswith(".pdf"):
-                textbook_parsed += parse_pdf(file)
-            elif fname.endswith(".docx"):
-                textbook_parsed += parse_docx(file)
-            elif fname.endswith((".png", ".jpg", ".jpeg")):
-                textbook_parsed += parse_image_ocr(file)
-
-        final_textbook = textbook_parsed.strip() or tb_text_fallback.strip()
-        if not final_textbook:
-            st.error("Textbook content is required. Please upload files or enter text.")
-            st.stop()
-
-    # SME Content
-    with col2:
-        st.subheader("SME Content")
-        sme_files = st.file_uploader(
-            "Upload SME files (PDF, DOCX, images)",
-            type=["pdf", "docx", "png", "jpg", "jpeg"],
-            accept_multiple_files=True,
-            key="sme_files"
-        )
-        sme_text_fallback = st.text_area("Or paste SME text below (mandatory)", 
-                                         st.session_state.get("sme_text", ""), 
-                                         height=150)
-
-        sme_parsed = ""
-        for file in sme_files:
-            fname = file.name.lower()
-            if fname.endswith(".pdf"):
-                sme_parsed += parse_pdf(file)
-            elif fname.endswith(".docx"):
-                sme_parsed += parse_docx(file)
-            elif fname.endswith((".png", ".jpg", ".jpeg")):
-                sme_parsed += parse_image_ocr(file)
-
-        final_sme = sme_parsed.strip() or sme_text_fallback.strip()
-        if not final_sme:
-            st.error("SME content is required. Please upload files or enter text.")
-            st.stop()
-
-    # Save and Proceed
-    if st.button("Next"):
-        st.session_state["textbook_text"] = final_textbook
-        st.session_state["sme_text"] = final_sme
-        st.session_state["page"] = 2
-
-    if st.button("Back"):
-        st.session_state["page"] = 0
-
-# Step 3: Analyze
-def page_analyze():
-    st.title("Lesson Builder: Step 3 - Analyze (Chunk + Summaries)")
-
-    # Retrieve combined content
-    textbook = st.session_state.get("textbook_text", "")
-    sme = st.session_state.get("sme_text", "")
-    combined_text = (textbook + "\n" + sme).strip()
-
-    if not combined_text:
-        st.warning("No combined content found. Please go back to Step 2 and upload or enter content.")
-        return
-
-    st.write("Analyzing combined content for alignment with lesson objectives and overall structure.")
-
-    paragraphs = [p.strip() for p in combined_text.split("\n") if p.strip()]
-    if st.button("Analyze Now"):
-        objective = st.session_state.get("lesson_objective", "")
-        df_analysis = analyze_chunks_with_llm(paragraphs, objective)
-        st.session_state["analysis_df"] = df_analysis
-        st.success("Analysis complete! Scroll down to view results.")
-
-    if "analysis_df" in st.session_state:
-        df_show = st.session_state["analysis_df"]
-        st.dataframe(df_show)
-
-        total_words = df_show["Word Count"].sum()
-        est_minutes = total_words / 140.0
-        st.write(f"Total words: {total_words}, approx {est_minutes:.1f} minutes.")
-        if est_minutes < 10:
-            st.warning("Content may be insufficient for a 15-minute lesson. Consider adding more SME content.")
-        elif est_minutes > 15:
-            st.warning("Content exceeds 15 minutes. Consider trimming or splitting into smaller sections.")
-
-        if st.button("Next: Generate Outline"):
-            st.session_state["page"] = 3
-
-    if st.button("Back"):
-        st.session_state["page"] = 1
-
-# Main Function
 def main():
     st.set_page_config(page_title="Advanced Lesson Builder", layout="wide")
+
+    # Initialize session state
     if "page" not in st.session_state:
         st.session_state["page"] = 0
+    if "textbook_text" not in st.session_state:
+        st.session_state["textbook_text"] = ""
+    if "sme_text" not in st.session_state:
+        st.session_state["sme_text"] = ""
+    if "metadata" not in st.session_state:
+        st.session_state["metadata"] = {}
+    if "screens_df" not in st.session_state:
+        st.session_state["screens_df"] = pd.DataFrame(columns=["Screen Title", "Text", "Estimated Duration", "Interactive Element"])
 
     show_sidebar_progress()
     page = st.session_state["page"]
+
     if page == 0:
         page_metadata()
     elif page == 1:
         page_content()
     elif page == 2:
-        page_analyze()
+        page_storyboard()
+    elif page == 3:
+        page_export()
+    else:
+        st.error("Invalid page index!")
 
+############################################
+# Sidebar Navigation
+############################################
+def show_sidebar_progress():
+    """Display the sidebar for navigation and progress tracking."""
+    st.sidebar.title("Lesson Builder Steps")
+    steps = ["Metadata", "Content Upload", "Storyboard", "Export"]
+    for i, step in enumerate(steps):
+        if i == st.session_state["page"]:
+            st.sidebar.write(f"▶️ {step} - In Progress")
+        elif i < st.session_state["page"]:
+            st.sidebar.write(f"✅ {step} - Done")
+        else:
+            st.sidebar.write(f"⬜ {step} - Pending")
+
+############################################
+# Step 1: Metadata
+############################################
+def page_metadata():
+    """Step 1: Collect metadata."""
+    st.title("Step 1: Metadata")
+    st.write("Enter metadata for the lesson.")
+
+    metadata_inputs = {
+        "Course Title": st.text_input("Course Title", st.session_state["metadata"].get("Course Title", "")),
+        "Module Title": st.text_input("Module Title", st.session_state["metadata"].get("Module Title", "")),
+        "Unit Title": st.text_input("Unit Title", st.session_state["metadata"].get("Unit Title", "")),
+        "Lesson Title": st.text_input("Lesson Title", st.session_state["metadata"].get("Lesson Title", "")),
+        "Lesson Objective": st.text_input("Lesson Objective", st.session_state["metadata"].get("Lesson Objective", ""))
+    }
+
+    if st.button("Next"):
+        if all(metadata_inputs.values()):
+            st.session_state["metadata"] = metadata_inputs
+            st.session_state["page"] = 1
+        else:
+            st.error("Please fill in all fields.")
+
+############################################
+# Step 2: Content Upload
+############################################
+def page_content():
+    """Step 2: Upload textbook and SME content."""
+    st.title("Step 2: Content Upload")
+    st.write("Upload textbook and SME files or enter content manually.")
+
+    # Textbook content
+    st.subheader("Textbook Content")
+    uploaded_textbook_files = st.file_uploader("Upload textbook files", type=["pdf", "docx", "png", "jpg", "jpeg"], accept_multiple_files=True)
+    textbook_manual_text = st.text_area("Or enter textbook content manually", st.session_state.get("textbook_text", ""))
+
+    # SME content
+    st.subheader("SME Content")
+    uploaded_sme_files = st.file_uploader("Upload SME files", type=["pdf", "docx", "png", "jpg", "jpeg"], accept_multiple_files=True)
+    sme_manual_text = st.text_area("Or enter SME content manually", st.session_state.get("sme_text", ""))
+
+    if st.button("Next"):
+        # Combine uploaded and manual content
+        st.session_state["textbook_text"] = parse_multiple_files(uploaded_textbook_files) + "\n" + textbook_manual_text
+        st.session_state["sme_text"] = parse_multiple_files(uploaded_sme_files) + "\n" + sme_manual_text
+
+        if st.session_state["textbook_text"].strip() or st.session_state["sme_text"].strip():
+            st.session_state["page"] = 2
+        else:
+            st.error("Please upload or enter content.")
+
+############################################
+# Step 3: Storyboard
+############################################
+def page_storyboard():
+    """Step 3: Create storyboard."""
+    st.title("Step 3: Storyboard")
+    st.write("Generate storyboard based on uploaded content.")
+
+    # Generate storyboard data
+    content = st.session_state["textbook_text"] + "\n" + st.session_state["sme_text"]
+    st.subheader("Raw Content")
+    st.text_area("Preview Raw Content", content, height=300)
+
+    if st.button("Generate Storyboard"):
+        screens = create_storyboard(content, st.session_state["metadata"])
+        st.session_state["screens_df"] = pd.DataFrame(screens)
+        st.success("Storyboard generated!")
+
+    if not st.session_state["screens_df"].empty:
+        st.subheader("Generated Storyboard")
+        st.dataframe(st.session_state["screens_df"])
+
+############################################
+# Storyboard Creation Logic
+############################################
+def create_storyboard(content, metadata):
+    """Create storyboard data from content."""
+    chunks = content.split("\n\n")  # Split into chunks by double newlines
+    screens = []
+    for i, chunk in enumerate(chunks):
+        if chunk.strip():
+            screens.append({
+                "Screen Title": f"Screen {i + 1}",
+                "Text": chunk.strip(),
+                "Estimated Duration": round(len(chunk.split()) / 140, 2),  # Assume 140 words per minute
+                "Interactive Element": "None"  # Placeholder
+            })
+    return screens
+
+############################################
+# Step 4: Export
+############################################
+def page_export():
+    """Step 4: Export storyboard."""
+    st.title("Step 4: Export")
+    if st.session_state["screens_df"].empty:
+        st.error("No storyboard available to export.")
+        return
+
+    st.write("Export the generated storyboard.")
+
+    # Export to Word
+    if st.button("Export to Word"):
+        export_to_word(st.session_state["screens_df"], st.session_state["metadata"])
+        st.success("Word document exported!")
+
+############################################
+# Export Logic
+############################################
+def export_to_word(screens_df, metadata):
+    """Export storyboard to Word."""
+    doc = WordDocument()
+    doc.add_heading(metadata["Lesson Title"], level=1)
+    for _, row in screens_df.iterrows():
+        doc.add_heading(row["Screen Title"], level=2)
+        doc.add_paragraph(row["Text"])
+        doc.add_paragraph(f"Estimated Duration: {row['Estimated Duration']} minutes")
+        doc.add_paragraph(f"Interactive Element: {row['Interactive Element']}")
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    st.download_button("Download Word Document", buffer, file_name="storyboard.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+############################################
+# Run the App
+############################################
 if __name__ == "__main__":
     main()
