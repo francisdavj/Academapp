@@ -5,9 +5,8 @@ from docx import Document
 from sentence_transformers import SentenceTransformer, util
 import pytesseract
 from PIL import Image
-from docx import Document as WordDocument
-import io
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+import io
 import concurrent.futures
 
 ############################################
@@ -39,6 +38,8 @@ def parse_image(uploaded_image):
     try:
         image = Image.open(uploaded_image)
         text = pytesseract.image_to_string(image)
+        if not text.strip():
+            st.warning("No text found in the image.")
     except Exception as e:
         st.error(f"Error reading image: {e}")
     return text
@@ -62,6 +63,7 @@ def load_embedding_model():
     """Load the SentenceTransformer model once and cache it for faster reuse."""
     return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
+@st.cache_resource
 def load_gpt_model():
     """Load a GPT-based model for content generation"""
     model_name = "EleutherAI/gpt-neo-2.7B"  # Using GPT-Neo for interactivity suggestions
@@ -197,7 +199,7 @@ def page_analyze():
     paragraphs = combined_text.split("\n\n")
     data = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_to_para = {executor.submit(process_paragraph, para, objective_emb): para for para in paragraphs}
+        future_to_para = {executor.submit(process_paragraph, para, objective_emb, embedding_model): para for para in paragraphs}
         for future in concurrent.futures.as_completed(future_to_para):
             result = future.result()
             if result:
@@ -215,8 +217,7 @@ def page_analyze():
         else:
             st.error("Please make sure the analysis is complete before moving to the next step.")
 
-def process_paragraph(para, objective_emb):
-    embedding_model = load_embedding_model()
+def process_paragraph(para, objective_emb, embedding_model):
     para_emb = embedding_model.encode(para, convert_to_tensor=True)
     sim_score = float(util.pytorch_cos_sim(para_emb, objective_emb)[0][0])
     return {"Chunk ID": para, "Paragraph": para.strip(), "Alignment Score": round(sim_score, 3)}
@@ -252,7 +253,6 @@ def page_storyboard():
 def page_refine():
     st.title("Step 5: Refine Storyboard")
 
-    # Check if storyboard data is available
     if "screens_df" not in st.session_state or st.session_state["screens_df"].empty:
         st.error("No storyboard available to refine. Please complete Step 4: Storyboard first.")
         return
@@ -264,24 +264,10 @@ def page_refine():
         key="refine_editor"
     )
 
-    # Allow for the modification of interactive elements in the refined storyboard
-    st.write("### Add/Modify Interactive Elements:")
-    for index, row in edited_df.iterrows():
-        st.write(f"#### Screen {index + 1}: {row['Paragraph'][:50]}...")  # Show snippet of content
-        interactivity_type = st.selectbox(
-            f"Choose an interactive element for Screen {index + 1}:",
-            ["None", "Quiz", "Reflection Question", "Accordion", "Tab"],
-            index=["None", "Quiz", "Reflection Question", "Accordion", "Tab"].index(row.get("Interactive Element", "None")),
-            key=f"interactive_{index}"
-        )
-        edited_df.at[index, "Interactive Element"] = interactivity_type
-
-    # Save the refined storyboard back to session state
     if st.button("Save Refinements"):
         st.session_state["screens_df"] = edited_df
         st.success("Refinements saved successfully!")
 
-    # Display the refined storyboard preview
     st.subheader("Refined Storyboard Preview")
     st.dataframe(st.session_state["screens_df"])
 
@@ -302,16 +288,14 @@ def page_export():
 # Export Logic
 ############################################
 def export_to_word(screens_df, metadata):
-    doc = WordDocument()
+    doc = Document()
     doc.add_heading(metadata["Lesson Title"], level=1)
     
     for _, row in screens_df.iterrows():
         doc.add_heading(f"Screen {row['Chunk ID']}", level=2)
         doc.add_paragraph(row["Paragraph"])
-        doc.add_paragraph(f"Estimated Duration: {row.get('Estimated Duration', 'Not Provided')} minutes")
         doc.add_paragraph(f"Interactive Element: {row.get('Interactive Element', 'None')}")
     
-    # Save the file to memory and allow download
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
