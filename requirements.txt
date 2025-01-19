@@ -1,12 +1,45 @@
-streamlit
-pandas
-PyPDF2
-python-docx
-torch==2.5.1
-torchvision==0.20.1
-torchaudio==2.5.1
-transformers==4.30.0
-sentence-transformers==2.2.0
-pytesseract==0.3.10
-Pillow==9.4.0  # Pinning a stable version
-tokenizers==0.13.3  # Pinning a stable version compatible with transformers
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v2
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.12'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev rustc
+
+    - name: Upgrade pip
+      run: python -m pip install --upgrade pip
+
+    - name: Clear pip cache
+      run: pip cache purge
+
+    - name: Uninstall old versions
+      run: |
+        pip uninstall torch torchvision torchaudio -y || true
+
+    - name: Install Dependencies
+      run: pip install -r requirements.txt --no-cache-dir
+
+    - name: Verify Installed Packages
+      run: |
+        pip list
+        python -c "import torch; print(torch.__version__)"
+        python -c "import torchvision; print(torchvision.__version__)"
+        python -c "import torchaudio; print(torchaudio.__version__)"
