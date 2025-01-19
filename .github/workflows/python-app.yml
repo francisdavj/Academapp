@@ -1,45 +1,45 @@
-name: Python application
+name: Python Application Setup
 
 on:
   push:
-    branches:
-      - main  # Run this action on pushes to the main branch
+    branches: [ main ]
   pull_request:
-    branches:
-      - main  # Run this action on pull requests to the main branch
+    branches: [ main ]
 
 jobs:
-  build:
-    runs-on: ubuntu-latest  # Use Ubuntu-based runner for compatibility
+  build-and-test:
+    runs-on: ubuntu-latest
 
     steps:
-    # Checkout the code
-    - name: Checkout code
+    - name: Checkout Repository
       uses: actions/checkout@v2
 
-    # Set up Python (Make sure to use a compatible version of Python)
-    - name: Set up Python
+    - name: Set up Python 3.12
       uses: actions/setup-python@v2
       with:
-        python-version: '3.8'  # You can adjust the version as per your needs
+        python-version: 3.12
 
-    # Clear pip cache before installing dependencies
+    - name: Upgrade pip and Set Configuration
+      run: |
+        python -m pip install --upgrade pip
+        pip config set global.verbose true
+
     - name: Clear pip cache
       run: |
-        pip cache purge  # Clear pip cache to avoid issues with old versions
+        pip cache purge
 
-    # Install dependencies from requirements.txt
-    - name: Install dependencies
+    - name: Install Dependencies
       run: |
-        python -m pip install --upgrade pip  # Upgrade pip to the latest version
-        pip install -r requirements.txt  # Install dependencies listed in requirements.txt
+        pip install -r requirements.txt
 
-    # (Optional) Run tests
-    - name: Run tests
+    - name: Check Installed Packages
       run: |
-        python -m unittest discover  # Run tests, adjust if you use another testing framework
+        pip list
 
-    # (Optional) Run Streamlit app (if you want to run it in the action for testing)
-    - name: Run Streamlit app (optional)
+    - name: Run Tests (optional)
       run: |
-        streamlit run app.py  # Replace app.py with your Streamlit app file
+        echo "Run your tests here"
+
+    - name: Additional Debug Info (optional)
+      run: |
+        pip debug --verbose
