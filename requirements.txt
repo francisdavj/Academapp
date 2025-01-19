@@ -2,10 +2,10 @@ streamlit
 pandas
 PyPDF2
 python-docx
-torch==2.4.1  # Use PyTorch 2.4.1, compatible with Python 3.12 and other packages
-torchvision==0.20.1  # Use the latest version compatible with torch 2.4.1
-torchaudio==2.4.0  # Compatible version of torchaudio with torch 2.4.1
-transformers==4.30.0  # Hugging Face transformers library
-sentence-transformers==2.2.0  # Sentence Transformers library
-pytesseract==0.3.10  # OCR library for extracting text from images
-Pillow==9.5.0  # Image processing library
+torch==2.5.1  # Update to match the required version by torchvision
+torchvision==0.20.1  # Compatible with torch 2.5.1
+torchaudio==0.12.1  # Compatible with torch 2.5.1, updated for compatibility
+transformers==4.30.0
+sentence-transformers==2.2.0
+pytesseract==0.3.10
+Pillow==9.5.0
