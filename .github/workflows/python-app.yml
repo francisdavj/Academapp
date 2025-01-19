@@ -21,15 +21,16 @@ jobs:
       with:
         python-version: '3.12'
 
-    # Step 3: Upgrade pip
-    - name: Upgrade pip
-      run: python -m pip install --upgrade pip
-
-    # Step 4: Install system dependencies
+    # Step 3: Install system dependencies (including distutils)
     - name: Install System Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev rustc
+        sudo apt-get install -y build-essential libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev rustc python3-distutils
+
+    # Step 4: Upgrade pip, setuptools, and wheel
+    - name: Upgrade pip, setuptools, and wheel
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
 
     # Step 5: Pre-Install Specific Libraries
     - name: Pre-Install Specific Libraries
@@ -39,13 +40,14 @@ jobs:
 
     # Step 6: Install dependencies from requirements.txt
     - name: Install Dependencies
-      run: pip install --no-cache-dir -r requirements.txt
+      run: |
+        pip install --no-cache-dir -r requirements.txt
 
     # Step 7: Verify Installed Packages
     - name: Verify Installed Packages
       run: pip list
 
-    # Step 8: Run Application (Adjust as needed)
+    # Step 8: Run Application (if applicable)
     - name: Run App
       run: |
-        streamlit run app.py  # Replace "app.py" with your actual entry point
+        streamlit run app.py  # Replace with your app's entry point
