@@ -1,0 +1,45 @@
+name: Python application
+
+on:
+  push:
+    branches:
+      - main  # Run this action on pushes to the main branch
+  pull_request:
+    branches:
+      - main  # Run this action on pull requests to the main branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest  # Use the Ubuntu-based runner for compatibility
+
+    steps:
+    # Checkout the code
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    # Set up Python (Make sure to use a compatible version of Python)
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'  # You can adjust the version as per your needs
+
+    # Clear pip cache before installing dependencies
+    - name: Clear pip cache
+      run: |
+        pip cache purge  # Clear pip cache to avoid issues with old versions
+
+    # Install dependencies from requirements.txt
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip  # Upgrade pip to the latest version
+        pip install -r requirements.txt  # Install dependencies listed in requirements.txt
+
+    # (Optional) Run tests if you have any
+    - name: Run tests
+      run: |
+        python -m unittest discover  # Run tests, adjust if you use another testing framework
+
+    # (Optional) Run Streamlit app (if you want to run it in the action for testing)
+    - name: Run Streamlit app (optional)
+      run: |
+        streamlit run app.py  # Replace app.py with your Streamlit app file
