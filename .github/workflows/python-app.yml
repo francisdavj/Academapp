@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout Repository
+      uses: actions/checkout@v2
 
     - name: Set up Python 3.12
       uses: actions/setup-python@v2
@@ -26,7 +27,7 @@ jobs:
 
     - name: Uninstall old versions
       run: |
-        pip uninstall torch torchvision torchaudio -y
+        pip uninstall torch torchvision torchaudio -y || true
 
     - name: Install Dependencies
       run: pip install -r requirements.txt --no-cache-dir
