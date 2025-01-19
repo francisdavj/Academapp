@@ -1,4 +1,4 @@
-name: Build and Test
+name: CI Build and Test
 
 on:
   push:
@@ -11,30 +11,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # Step 1: Checkout Repository
     - name: Checkout Repository
       uses: actions/checkout@v2
 
+    # Step 2: Set up Python 3.12
     - name: Set up Python 3.12
       uses: actions/setup-python@v2
       with:
         python-version: '3.12'
 
+    # Step 3: Install system dependencies
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev rustc build-essential
+
+    # Step 4: Upgrade pip
     - name: Upgrade pip
       run: python -m pip install --upgrade pip
 
+    # Step 5: Clear pip cache (optional but recommended for debugging cache issues)
     - name: Clear pip cache
       run: pip cache purge
 
-    - name: Uninstall old versions
-      run: |
-        pip uninstall torch torchvision torchaudio -y || true
-
+    # Step 6: Install Python dependencies
     - name: Install Dependencies
-      run: pip install -r requirements.txt --no-cache-dir
+      run: |
+        pip install -r requirements.txt --no-cache-dir
 
+    # Step 7: Verify Installed Packages
     - name: Verify Installed Packages
       run: |
         pip list
         python -c "import torch; print(torch.__version__)"
         python -c "import torchvision; print(torchvision.__version__)"
         python -c "import torchaudio; print(torchaudio.__version__)"
+
+    # Step 8: Run Tests (Replace with your test command or script)
+    - name: Run Tests
+      run: |
+        pytest tests/  # Adjust this to your test directory or command
