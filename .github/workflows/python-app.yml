@@ -1,48 +1,41 @@
-name: CI Build and Test
+name: Python CI Workflow
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    # Step 1: Checkout Repository
     - name: Checkout Repository
       uses: actions/checkout@v2
 
-    # Step 2: Set Up Python 3.12
     - name: Set up Python 3.12
       uses: actions/setup-python@v2
       with:
         python-version: '3.12'
 
-    # Step 3: Install System-Level Dependencies
     - name: Install System Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev rustc python3.12-venv
+        sudo apt-get install -y build-essential libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev rustc
 
-    # Step 4: Upgrade pip, setuptools, and wheel
     - name: Upgrade pip, setuptools, and wheel
       run: |
         python -m ensurepip --upgrade
         python -m pip install --upgrade pip setuptools wheel
 
-    # Step 5: Install Dependencies from requirements.txt
     - name: Install Dependencies
       run: |
-        pip install --no-cache-dir -r requirements.txt --verbose
+        pip install -r requirements.txt
 
-    # Step 6: Verify Installed Packages
     - name: Verify Installed Packages
       run: pip list
 
-    # Step 7: Run Your App
-    - name: Run Application
+    - name: Run App
       run: |
-        streamlit run app.py  # Replace with the actual entry point of your app
+        streamlit run app.py
