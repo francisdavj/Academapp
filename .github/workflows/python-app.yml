@@ -1,4 +1,4 @@
-name: Python Application Setup
+name: Build and Test
 
 on:
   push:
@@ -7,39 +7,33 @@ on:
     branches: [ main ]
 
 jobs:
-  build-and-test:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v2
+    - uses: actions/checkout@v2
 
     - name: Set up Python 3.12
       uses: actions/setup-python@v2
       with:
-        python-version: 3.12
+        python-version: '3.12'
 
-    - name: Upgrade pip and Set Configuration
-      run: |
-        python -m pip install --upgrade pip
-        pip config set global.verbose true
+    - name: Upgrade pip
+      run: python -m pip install --upgrade pip
 
     - name: Clear pip cache
+      run: pip cache purge
+
+    - name: Uninstall old versions
       run: |
-        pip cache purge
+        pip uninstall torch torchvision torchaudio -y
 
     - name: Install Dependencies
-      run: |
-        pip install -r requirements.txt
+      run: pip install -r requirements.txt --no-cache-dir
 
-    - name: Check Installed Packages
+    - name: Verify Installed Packages
       run: |
         pip list
-
-    - name: Run Tests (optional)
-      run: |
-        echo "Run your tests here"
-
-    - name: Additional Debug Info (optional)
-      run: |
-        pip debug --verbose
+        python -c "import torch; print(torch.__version__)"
+        python -c "import torchvision; print(torchvision.__version__)"
+        python -c "import torchaudio; print(torchaudio.__version__)"
