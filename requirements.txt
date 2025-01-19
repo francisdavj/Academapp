@@ -2,10 +2,11 @@ streamlit
 pandas
 PyPDF2
 python-docx
-torch==2.5.1  # Compatible with torchvision 0.20.1 and Python 3.12
-torchvision==0.20.1  # Compatible with torch 2.5.1
-torchaudio==2.5.1  # Matches torch 2.5.1
+torch==2.5.1
+torchvision==0.20.1
+torchaudio==2.5.1
 transformers==4.30.0
 sentence-transformers==2.2.0
 pytesseract==0.3.10
-Pillow==9.5.0
+Pillow==9.4.0  # Pinning a stable version
+tokenizers==0.13.3  # Pinning a stable version compatible with transformers
