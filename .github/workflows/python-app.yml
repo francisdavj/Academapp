@@ -21,28 +21,33 @@ jobs:
       with:
         python-version: '3.12'
 
-    # Step 3: Install system dependencies (fix distutils issue)
+    # Step 3: Install essential system dependencies
     - name: Install System Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev rustc python3.12-venv
 
-    # Step 4: Ensure pip, setuptools, wheel, and distutils
-    - name: Ensure pip, setuptools, and wheel
+    # Step 4: Upgrade pip, setuptools, and wheel
+    - name: Upgrade pip, setuptools, and wheel
       run: |
         python -m ensurepip --upgrade
         python -m pip install --upgrade pip setuptools wheel
 
-    # Step 5: Install dependencies from requirements.txt
+    # Step 5: Pre-install critical dependencies
+    - name: Pre-Install Critical Libraries
+      run: |
+        pip install --no-cache-dir numpy Pillow tokenizers
+
+    # Step 6: Install all dependencies from requirements.txt
     - name: Install Dependencies
       run: |
         pip install --no-cache-dir -r requirements.txt --verbose
 
-    # Step 6: Verify Installed Packages
+    # Step 7: Verify Installed Packages
     - name: Verify Installed Packages
       run: pip list
 
-    # Step 7: Run Application (if applicable)
+    # Step 8: Run Application (if applicable)
     - name: Run App
       run: |
         streamlit run app.py  # Replace with your app's entry point
