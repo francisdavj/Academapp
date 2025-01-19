@@ -2,8 +2,10 @@ streamlit
 pandas
 PyPDF2
 python-docx
-sentence-transformers
-transformers
-torch
-pytesseract
-Pillow
+torch==2.1.0+cpu  # Latest stable version for CPU-only
+torchvision==0.15.0+cpu  # Latest torchvision compatible with CPU
+torchaudio==2.1.0  # Latest torchaudio compatible with PyTorch 2.1.0
+transformers==4.30.0  # Ensure you're using the latest Transformers library for Hugging Face models
+sentence-transformers==2.2.0  # Latest version of Sentence Transformers
+pytesseract==0.3.10  # Ensure the latest pytesseract is installed
+Pillow==9.5.0  # Updated Pillow library for image handling
